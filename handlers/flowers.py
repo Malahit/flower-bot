@@ -1,12 +1,16 @@
 """Flower catalog and AI recommendation handlers."""
 import json
 import os
+import logging
 from typing import Dict, Any
 from telegram import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import httpx
 from sqlalchemy import select
 from database import async_session_maker, Flower, User
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # FSM states for bouquet builder
 COLOR, QUANTITY, ADDONS, PREVIEW = range(4)
@@ -277,8 +281,8 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     if data.get("images"):
                         # Image would be in base64, save and send
                         image_generated = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Stable Diffusion API error: {e}")
     
     if not image_generated:
         # Use Pillow to create a simple preview
@@ -294,11 +298,12 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         img_path = "/tmp/bouquet_preview.png"
         img.save(img_path)
         
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=open(img_path, 'rb'),
-            caption=preview_text
-        )
+        with open(img_path, 'rb') as photo_file:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=photo_file,
+                caption=preview_text
+            )
     
     # Add reactions buttons
     keyboard = [
@@ -331,7 +336,7 @@ async def build_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 build_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("build", build_start),
-        MessageHandler(filters.Regex("^build_bouquet$"), build_start)
+        CallbackQueryHandler(build_start, pattern="^build_bouquet$")
     ],
     states={
         COLOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, build_color)],

@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   - type: web
     name: flower-bot
@@ -20,15 +18,15 @@ services:
       - key: ADMIN_IDS
         sync: false
       - key: MINIO_ENDPOINT
-        value: localhost:9000
+        sync: false
       - key: MINIO_ACCESS_KEY
-        value: minioadmin
+        sync: false
       - key: MINIO_SECRET_KEY
         sync: false
       - key: MINIO_BUCKET
         value: flowers
       - key: STABLE_DIFFUSION_API_URL
-        value: http://localhost:7860
+        sync: false
       - key: PERPLEXITY_API_KEY
         sync: false
       - key: YANDEX_GEOCODE_API_KEY

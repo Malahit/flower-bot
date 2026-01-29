@@ -1,14 +1,18 @@
 """Admin handlers for flower management and orders viewing."""
 import os
 import io
+import logging
 from typing import List
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from sqlalchemy import select, desc
 from minio import Minio
 from minio.error import S3Error
 import base64
 from database import async_session_maker, Flower, Order, User
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Admin states for FSM
 FLOWER_NAME, FLOWER_DESC, FLOWER_PRICE, FLOWER_CATEGORY, FLOWER_PHOTO = range(5)
@@ -19,7 +23,10 @@ ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "").split(",") if 
 
 def is_admin(user_id: int) -> bool:
     """Check if user is admin."""
-    return user_id in ADMIN_IDS or len(ADMIN_IDS) == 0  # Allow all if no admins configured
+    if not ADMIN_IDS:
+        # Require admin configuration for security
+        return False
+    return user_id in ADMIN_IDS
 
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -212,6 +219,22 @@ async def flower_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """Process flower price."""
     try:
         price = float(update.message.text)
+        
+        # Validate price range
+        if price <= 0:
+            await update.message.reply_text(
+                "❌ Цена должна быть положительным числом. Введите корректную цену:",
+                reply_markup=ForceReply(selective=True)
+            )
+            return FLOWER_PRICE
+        
+        if price > 1000000:
+            await update.message.reply_text(
+                "❌ Цена слишком большая. Введите разумную цену (до 1,000,000₽):",
+                reply_markup=ForceReply(selective=True)
+            )
+            return FLOWER_PRICE
+        
         context.user_data['flower_price'] = price
         
         await update.message.reply_text(
@@ -252,10 +275,16 @@ async def flower_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         photo_bytes = await file.download_as_bytearray()
         
         # Upload to MinIO
-        minio_endpoint = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-        minio_access = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-        minio_secret = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+        minio_endpoint = os.getenv("MINIO_ENDPOINT")
+        minio_access = os.getenv("MINIO_ACCESS_KEY")
+        minio_secret = os.getenv("MINIO_SECRET_KEY")
         minio_bucket = os.getenv("MINIO_BUCKET", "flowers")
+        
+        # Validate MinIO credentials
+        if not minio_access or not minio_secret:
+            logger.warning("MinIO credentials not configured")
+        elif minio_access == "minioadmin" or minio_secret == "minioadmin":
+            logger.warning("Using default MinIO credentials - not recommended for production!")
         
         try:
             # Initialize MinIO client
@@ -283,8 +312,9 @@ async def flower_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             photo_url = f"http://{minio_endpoint}/{minio_bucket}/{file_name}"
             
         except Exception as e:
-            # If MinIO fails, use placeholder or Telegram file_id
-            photo_url = f"https://api.telegram.org/file/bot{context.bot.token}/{file.file_path}"
+            logger.error(f"MinIO upload failed: {e}")
+            # Use a generic placeholder instead of exposing the bot token
+            photo_url = None
     
     # Save flower to database
     async with async_session_maker() as session:
@@ -357,7 +387,7 @@ async def add_flower_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # Conversation handler for adding flowers
 add_flower_conversation = ConversationHandler(
     entry_points=[
-        MessageHandler(filters.Regex("^admin_add_flower$"), add_flower_start)
+        CallbackQueryHandler(add_flower_start, pattern="^admin_add_flower$")
     ],
     states={
         FLOWER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, flower_name)],

@@ -7,6 +7,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    ContextTypes,
     filters
 )
 from dotenv import load_dotenv
@@ -64,7 +65,7 @@ async def post_init(application: Application) -> None:
     logger.info("Bot commands set")
 
 
-async def error_handler(update: object, context: object) -> None:
+async def error_handler(update: Update | None, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors."""
     logger.error("Exception while handling an update:", exc_info=context.error)
 

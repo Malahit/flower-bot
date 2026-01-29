@@ -1,7 +1,7 @@
 """Database models and initialization for flower-bot."""
 import os
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, AsyncGenerator
 from sqlalchemy import String, Integer, Float, DateTime, Text, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -95,7 +95,7 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Get database session."""
     async with async_session_maker() as session:
         yield session
