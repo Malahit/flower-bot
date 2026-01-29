@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Flower Bot - Каталог</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌸 Каталог цветов</h1>
+            <div class="cart-icon" onclick="showCart()">
+                🛒 <span id="cart-count">0</span>
+            </div>
+        </header>
+
+        <div class="filters">
+            <button class="filter-btn active" data-category="all">Все</button>
+            <button class="filter-btn" data-category="roses">Розы</button>
+            <button class="filter-btn" data-category="tulips">Тюльпаны</button>
+            <button class="filter-btn" data-category="peonies">Пионы</button>
+            <button class="filter-btn" data-category="mixed">Микс</button>
+        </div>
+
+        <div id="catalog" class="catalog">
+            <!-- Flowers will be loaded here -->
+        </div>
+
+        <div id="cart-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeCart()">&times;</span>
+                <h2>🛒 Корзина</h2>
+                <div id="cart-items"></div>
+                <div class="cart-total">
+                    <strong>Итого: <span id="total-price">0</span>₽</strong>
+                </div>
+                <button class="btn-primary" onclick="checkout()">Оформить заказ</button>
+            </div>
+        </div>
+
+        <div id="builder-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeBuilder()">&times;</span>
+                <h2>🎨 Создать свой букет</h2>
+                <div class="builder-steps">
+                    <div class="step active" id="step-color">
+                        <h3>Выберите цвет</h3>
+                        <div class="color-options">
+                            <button class="color-btn" data-color="red">🔴 Красный</button>
+                            <button class="color-btn" data-color="yellow">🟡 Желтый</button>
+                            <button class="color-btn" data-color="blue">🔵 Синий</button>
+                            <button class="color-btn" data-color="white">⚪ Белый</button>
+                            <button class="color-btn" data-color="pink">🩷 Розовый</button>
+                            <button class="color-btn" data-color="mixed">🌈 Микс</button>
+                        </div>
+                    </div>
+                    <div class="step" id="step-quantity">
+                        <h3>Количество цветов</h3>
+                        <div class="quantity-options">
+                            <button class="qty-btn" data-qty="5">5</button>
+                            <button class="qty-btn" data-qty="7">7</button>
+                            <button class="qty-btn" data-qty="11">11</button>
+                            <button class="qty-btn" data-qty="15">15</button>
+                            <button class="qty-btn" data-qty="21">21</button>
+                            <button class="qty-btn" data-qty="25">25</button>
+                        </div>
+                    </div>
+                    <div class="step" id="step-addons">
+                        <h3>Дополнения</h3>
+                        <div class="addon-options">
+                            <label><input type="checkbox" value="ribbon"> 🎀 Лента (+100₽)</label>
+                            <label><input type="checkbox" value="luxury"> 🎁 Упаковка люкс (+300₽)</label>
+                            <label><input type="checkbox" value="toy"> 🧸 Мягкая игрушка (+500₽)</label>
+                            <label><input type="checkbox" value="candy"> 🍫 Конфеты (+400₽)</label>
+                        </div>
+                        <button class="btn-primary" onclick="previewBouquet()">Предпросмотр</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
