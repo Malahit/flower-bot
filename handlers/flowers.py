@@ -873,6 +873,67 @@ async def build_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return ConversationHandler.END
 
 
+async def handle_add_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle adding AI bouquet to cart."""
+    query = update.callback_query
+    await query.answer("✅ Добавлено в корзину!")
+    
+    # Get bouquet from context
+    bouquet = context.user_data.get("ai_bouquet", {})
+    
+    # Initialize cart if not exists
+    if 'cart' not in context.user_data:
+        context.user_data['cart'] = []
+    
+    # Add AI bouquet to cart
+    cart_item = {
+        'type': 'ai_bouquet',
+        'occasion': bouquet.get('occasion', ''),
+        'flower': bouquet.get('flower', ''),
+        'quantity': bouquet.get('quantity', 0),
+        'addons': [_addon_def(addon)['name'] for addon in bouquet.get('addons', [])],
+        'price': bouquet.get('total', 0)
+    }
+    
+    context.user_data['cart'].append(cart_item)
+    
+    await query.edit_message_text(
+        f"✅ Букет добавлен в корзину!\n\n"
+        f"Букет: {bouquet.get('flower', '')} x{bouquet.get('quantity', 0)}\n"
+        f"Цена: {bouquet.get('total', 0)}₽\n\n"
+        f"Используйте /cart для просмотра корзины или /start для главного меню"
+    )
+    
+    logger.info(f"AI bouquet added to cart for user {update.effective_user.id}")
+    return ConversationHandler.END
+
+
+async def handle_edit_flower(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle edit flower request - placeholder for future implementation."""
+    query = update.callback_query
+    await query.answer("Функция в разработке")
+    
+    await query.edit_message_text(
+        "🔄 Изменение цветов в разработке\n\n"
+        "Используйте /start чтобы создать новый букет"
+    )
+    
+    logger.info(f"Edit flower clicked (not implemented yet)")
+
+
+async def handle_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle restart - placeholder for future implementation."""
+    query = update.callback_query
+    await query.answer("Создайте новый букет через /start")
+    
+    await query.edit_message_text(
+        "❌ Для создания нового букета используйте:\n"
+        "/start → 🎨 Собрать букет"
+    )
+    
+    logger.info(f"Restart clicked")
+
+
 # ==================== Old FSM Handlers (kept for backward compatibility) ====================
 async def start_build(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder FSM."""
@@ -1178,6 +1239,11 @@ def main_handlers(application: Application) -> None:
     
     # NEW 4-step AI bouquet constructor (handles build_start callback)
     application.add_handler(build_conversation)
+    
+    # Handlers for post-preview actions (after conversation ends)
+    application.add_handler(CallbackQueryHandler(handle_add_cart, pattern="^add_cart$"))
+    application.add_handler(CallbackQueryHandler(handle_edit_flower, pattern="^edit:flower$"))
+    application.add_handler(CallbackQueryHandler(handle_restart, pattern="^restart$"))
     
     # Old /build command handler (for backward compatibility)
     application.add_handler(old_build_conversation)
