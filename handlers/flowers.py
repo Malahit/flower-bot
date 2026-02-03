@@ -24,7 +24,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user = update.effective_user
     await update.message.reply_text(
-        f"👋 Привет, {user.first_name}! 🌸\n\n"
+        f"👋 Привет, {user.first_name}!") 🌸\n\n"
         "/recommend - AI рекомендации\n"
         "/build - Собрать букет\n"
         "/cart - Корзина"
