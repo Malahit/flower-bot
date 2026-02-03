@@ -140,15 +140,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("🧺 Корзина", callback_data="cart")
         ],
         [
-            InlineKeyboardButton("🎉 ДР 2000₽", callback_data="ai:occasion:birthday:budget:2000"),
+            InlineKeyboardButton("🎉 День рождения", callback_data="ai:occasion:birthday:budget:2000"),
             InlineKeyboardButton("💕 Романтика 2500₽", callback_data="ai:occasion:love:budget:2500")
         ],
         [
-            InlineKeyboardButton("🕒 Последний заказ", callback_data="history"),
-            InlineKeyboardButton("💍 Свадьба", callback_data="ai:occasion:wedding")
+            InlineKeyboardButton("🕒 Повторить заказ", callback_data="history"),
+            InlineKeyboardButton("💍 Годовщина", callback_data="ai:occasion:wedding")
         ],
         [
-            InlineKeyboardButton("😔 Извинения", callback_data="ai:occasion:apology")
+            InlineKeyboardButton("😔 Извинение & Благодарность", callback_data="ai:occasion:apology")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -263,8 +263,8 @@ async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
         [InlineKeyboardButton("🎉 День рождения (2000₽)", callback_data="rec_preset:birthday:2000")],
         [InlineKeyboardButton("💕 Романтика (2500+₽)", callback_data="rec_preset:romance:2500+")],
-        [InlineKeyboardButton("🌸 Извинение (деликатно)", callback_data="rec_preset:apology:soft")],
-        [InlineKeyboardButton("💐 Свадьба (премиум)", callback_data="rec_preset:wedding:premium")],
+        [InlineKeyboardButton("🌸 Извинение & Благодарность (деликатно)", callback_data="rec_preset:apology:soft")],
+        [InlineKeyboardButton("💐 Годовщина (премиум)", callback_data="rec_preset:wedding:premium")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -355,8 +355,8 @@ async def handle_ai_menu_callback(update: Update, context: ContextTypes.DEFAULT_
     keyboard = [
         [InlineKeyboardButton("🎉 День рождения (2000₽)", callback_data="ai:occasion:birthday:budget:2000")],
         [InlineKeyboardButton("💕 Романтика (2500+₽)", callback_data="ai:occasion:love:budget:2500")],
-        [InlineKeyboardButton("🌸 Извинение (деликатно)", callback_data="ai:occasion:apology:budget:1500")],
-        [InlineKeyboardButton("💐 Свадьба (премиум)", callback_data="ai:occasion:wedding:budget:5000")],
+        [InlineKeyboardButton("🌸 Извинение & Благодарность (деликатно)", callback_data="ai:occasion:apology:budget:1500")],
+        [InlineKeyboardButton("💐 Годовщина (премиум)", callback_data="ai:occasion:wedding:budget:5000")],
         [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -454,7 +454,7 @@ async def handle_history_callback(update: Update, context: ContextTypes.DEFAULT_
     if last_order:
         order_summary = format_order_summary(last_order)
         text = (
-            f"🕒 Последний заказ:\n\n"
+            f"🕒 Повторить заказ:\n\n"
             f"Заказ #{last_order.id}\n"
             f"📦 {order_summary}\n"
             f"💰 {last_order.total_price}₽\n"
@@ -518,15 +518,15 @@ async def handle_back_to_start_callback(update: Update, context: ContextTypes.DE
             InlineKeyboardButton("🧺 Корзина", callback_data="cart")
         ],
         [
-            InlineKeyboardButton("🎉 ДР 2000₽", callback_data="ai:occasion:birthday:budget:2000"),
+            InlineKeyboardButton("🎉 День рождения", callback_data="ai:occasion:birthday:budget:2000"),
             InlineKeyboardButton("💕 Романтика 2500₽", callback_data="ai:occasion:love:budget:2500")
         ],
         [
-            InlineKeyboardButton("🕒 Последний заказ", callback_data="history"),
-            InlineKeyboardButton("💍 Свадьба", callback_data="ai:occasion:wedding")
+            InlineKeyboardButton("🕒 Повторить заказ", callback_data="history"),
+            InlineKeyboardButton("💍 Годовщина", callback_data="ai:occasion:wedding")
         ],
         [
-            InlineKeyboardButton("😔 Извинения", callback_data="ai:occasion:apology")
+            InlineKeyboardButton("😔 Извинение & Благодарность", callback_data="ai:occasion:apology")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
