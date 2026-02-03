@@ -12,7 +12,6 @@ import httpx
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     Update,
     WebAppInfo,
