@@ -159,6 +159,7 @@ async def add_sample_flowers():
 
 async def get_user(user_id: int) -> Optional[User]:
     """Get user from database by user_id."""
+    from sqlalchemy import select
     async with async_session_maker() as session:
         result = await session.execute(
             select(User).where(User.user_id == user_id)
@@ -168,6 +169,7 @@ async def get_user(user_id: int) -> Optional[User]:
 
 async def get_popular_flower() -> Optional[Flower]:
     """Get a popular flower for display (first available flower)."""
+    from sqlalchemy import select
     async with async_session_maker() as session:
         result = await session.execute(
             select(Flower).where(Flower.available == True).limit(1)
@@ -177,6 +179,7 @@ async def get_popular_flower() -> Optional[Flower]:
 
 async def get_user_last_order(user_id: int) -> Optional[Order]:
     """Get user's last order."""
+    from sqlalchemy import select
     async with async_session_maker() as session:
         result = await session.execute(
             select(Order)
