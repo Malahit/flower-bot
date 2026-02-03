@@ -115,6 +115,7 @@ async def add_sample_flowers():
                 name="Розы классические",
                 description="Букет из 15 красных роз",
                 price=2500.0,
+                photo_url="https://images.unsplash.com/photo-1518709268805-4e9042af9f23",
                 category="roses",
                 available=True
             ),
@@ -122,6 +123,7 @@ async def add_sample_flowers():
                 name="Тюльпаны микс",
                 description="Букет из 25 разноцветных тюльпанов",
                 price=1800.0,
+                photo_url="https://images.unsplash.com/photo-1490750967868-88aa4486c946",
                 category="tulips",
                 available=True
             ),
@@ -129,6 +131,7 @@ async def add_sample_flowers():
                 name="Пионы нежные",
                 description="Букет из 7 розовых пионов",
                 price=3200.0,
+                photo_url="https://images.unsplash.com/photo-1465146633011-14f8e0781093",
                 category="peonies",
                 available=True
             ),
@@ -136,6 +139,7 @@ async def add_sample_flowers():
                 name="Букет 'День рождения'",
                 description="Яркий микс из роз, хризантем и альстромерий",
                 price=2000.0,
+                photo_url="https://images.unsplash.com/photo-1563241527-3004b7be0ffd",
                 category="mixed",
                 available=True
             ),
@@ -143,6 +147,7 @@ async def add_sample_flowers():
                 name="Монобукет хризантем",
                 description="Букет из белых хризантем",
                 price=1500.0,
+                photo_url="https://images.unsplash.com/photo-1508610048659-a06b669e3321",
                 category="chrysanthemums",
                 available=True
             ),
@@ -150,3 +155,59 @@ async def add_sample_flowers():
         
         session.add_all(sample_flowers)
         await session.commit()
+
+
+async def get_user(user_id: int) -> Optional[User]:
+    """Get user from database by user_id."""
+    from sqlalchemy import select
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(User).where(User.user_id == user_id)
+        )
+        return result.scalars().first()
+
+
+async def get_popular_flower() -> Optional[Flower]:
+    """Get a popular flower for display (first available flower)."""
+    from sqlalchemy import select
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Flower).where(Flower.available == True).limit(1)
+        )
+        return result.scalars().first()
+
+
+async def get_user_last_order(user_id: int) -> Optional[Order]:
+    """Get user's last order."""
+    from sqlalchemy import select
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Order)
+            .where(Order.user_id == user_id)
+            .order_by(Order.created_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+
+def format_order_summary(order: Order) -> str:
+    """Format order summary for display."""
+    if not order:
+        return "Нет заказов"
+    
+    try:
+        import json
+        bouquet_data = json.loads(order.bouquet_json)
+        
+        # Extract basic info from first item if available
+        if bouquet_data and len(bouquet_data) > 0:
+            first_item = bouquet_data[0]
+            item_desc = first_item.get('name', first_item.get('color', 'Букет'))
+            quantity = first_item.get('quantity', '')
+        else:
+            item_desc = "Букет"
+            quantity = ""
+        
+        return f"{item_desc} {quantity}".strip()
+    except Exception:
+        return "Букет"
