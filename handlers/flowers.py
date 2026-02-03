@@ -1,4 +1,13 @@
-def start(user):
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
+
+# Existing code
+
+# Updated start function
+
+async def start(update: Update, context: CallbackContext) -> None:
+    user = update.effective_user
+    # Updated welcome_text assignment
     welcome_text = f"""👋 Привет, {user.first_name}!
 
 🌸 flower-bot - доставка цветов
@@ -7,4 +16,6 @@ def start(user):
 💳 Оплата TON Stars
 
 Выберите действие:"""
-    # The rest of the start function logic remains unchanged
+    await update.message.reply_text(welcome_text)
+
+# Other existing code
