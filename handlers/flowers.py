@@ -1,32 +1,53 @@
 """Flower catalog and AI recommendation handlers."""
+from __future__ import annotations
+
 import os
-import logging
+from functools import wraps
+
 import httpx
+import structlog
 from typing import Any, Dict
 from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
     Update,
     WebAppInfo,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    ReplyKeyboardMarkup,
 )
 from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
     ContextTypes,
     ConversationHandler,
-    CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     filters,
 )
 from sqlalchemy import select
-from database import async_session_maker, Flower, User
 
-logger = logging.getLogger(__name__)
+from database import Flower, User, async_session_maker
+
+logger = structlog.get_logger(__name__)
 
 # FSM states for bouquet builder
 COLOR, QUANTITY, ADDONS, PREVIEW = range(4)
 
+def handle_error(func):
+    """Decorator to catch and log handler errors."""
 
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        try:
+            return await func(update, context, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("handler_error", handler=func.__name__, error=str(exc))
+            target = update.effective_message if update else None
+            if target:
+                await target.reply_text("❌ Произошла ошибка, попробуйте позже.")
+            return None
+
+    return wrapper
+
+@handle_error
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command - open Telegram Mini App catalog."""
     user = update.effective_user
@@ -47,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Get flowers from database (not used yet, but keep for future webapp)
     async with async_session_maker() as session:
-        await session.execute(select(Flower).where(Flower.available == True))
+        await session.execute(select(Flower).where(Flower.available.is_(True)))
 
     webapp_url = os.getenv("WEBAPP_URL", "https://your-app.railway.app/webapp/")
     keyboard = [
@@ -59,30 +80,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     welcome_text = (
         f"👋 Привет, {user.first_name}!
-
-"
-        "🌺 Добро пожаловать в flower-bot - ваш персональный флорист!
-
-"
-        "Что я умею:
-"
-        "• 🌸 Показать каталог цветов
-"
-        "• 🤖 Подобрать букет с помощью AI
-"
-        "• 🎨 Создать букет по вашим предпочтениям
-"
-        "• 📍 Доставить по адресу
-"
-        "• 💫 Оплата через TON Stars
-
-"
+\n"
+        "🌺 Добро пожаловать в flower-bot - ваш персональный флорист!\n\n"
+        "Что я умею:\n"
+        "• 🌸 Показать каталог цветов\n"
+        "• 🤖 Подобрать букет с помощью AI\n"
+        "• 🎨 Создать букет по вашим предпочтениям\n"
+        "• 📍 Доставить по адресу\n"
+        "• 💫 Оплата через TON Stars\n\n"
         "Выберите действие:"
     )
 
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
-
+@handle_error
 async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /recommend command - AI-powered bouquet recommendation using Perplexity."""
     query = update.callback_query
@@ -92,25 +103,17 @@ async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_text(_recommend_prompt())
 
-
 def _recommend_prompt() -> str:
     return (
-        "🤖 AI Рекомендация букета
-
-"
-        "Пожалуйста, опишите:
-"
-        "• Повод (день рождения, свадьба, романтика)
-"
-        "• Бюджет в рублях
-"
-        "• Предпочтения по цвету (опционально)
-
-"
+        "🤖 AI Рекомендация букета\n\n"
+        "Пожалуйста, опишите:\n"
+        "• Повод (день рождения, свадьба, романтика)\n"
+        "• Бюджет в рублях\n"
+        "• Предпочтения по цвету (опционально)\n\n"
         "Пример: повод:день рождения, бюджет:2000, цвет:розовый"
     )
 
-
+@handle_error
 async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process AI recommendation request."""
     user_input = update.message.text
@@ -122,34 +125,25 @@ async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_T
             params[key.strip()] = value.strip()
 
     async with async_session_maker() as session:
-        result = await session.execute(select(Flower).where(Flower.available == True))
+        result = await session.execute(select(Flower).where(Flower.available.is_(True)))
         flowers = result.scalars().all()
         flowers_context = "\n".join(
             [f"- {f.name}: {f.description}, цена: {f.price}₽" for f in flowers]
         )
 
     perplexity_key = os.getenv("PERPLEXITY_API_KEY")
+    recommendation: str
+
     if not perplexity_key or perplexity_key == "your_perplexity_key_here":
         recommendation = (
-            "🌸 Рекомендация на основе ваших пожеланий:
-
-"
-            f"Повод: {params.get('повод', 'не указан')}
-"
-            f"Бюджет: {params.get('бюджет', 'не указан')}₽
-
-"
-            "💐 Рекомендуем: Букет 'День рождения'
-"
-            "Яркий микс из роз, хризантем и альстромерий — идеально подходит для вашего случая!
-"
-            "Цена: 2000₽
-
-"
-            "Или рассмотрите:
-"
-            "• Розы классические - 2500₽
-"
+            "🌸 Рекомендация на основе ваших пожеланий:\n\n"
+            f"Повод: {params.get('повод', 'не указан')}\n"
+            f"Бюджет: {params.get('бюджет', 'не указан')}₽\n\n"
+            "💐 Рекомендуем: Букет 'День рождения'\n"
+            "Яркий микс из роз, хризантем и альстромерий — идеально подходит для вашего случая!\n"
+            "Цена: 2000₽\n\n"
+            "Или рассмотрите:\n"
+            "• Розы классические - 2500₽\n"
             "• Тюльпаны микс - 1800₽"
         )
     else:
@@ -179,15 +173,16 @@ async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_T
                 response.raise_for_status()
                 data = response.json()
                 recommendation = "🌸 " + data["choices"][0]["message"]["content"]
-        except Exception as e:
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("perplexity_fallback", error=str(exc))
             recommendation = (
-                f"❌ Ошибка при получении рекомендации: {e}\n\n"
-                "Попробуйте позже или выберите букет из каталога."
+                "🌸 Не удалось получить ответ от AI.\n"
+                "Попробуйте позже или опишите букет подробнее."
             )
 
     await update.message.reply_text(recommendation)
 
-
+@handle_error
 async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder conversation."""
     query = update.callback_query
@@ -213,10 +208,10 @@ async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     return COLOR
 
-
+@handle_error
 async def build_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     color = update.message.text
-    context.user_data['bouquet_color'] = color
+    context.user_data["bouquet_color"] = color
 
     keyboard = [
         ["5 цветов", "7 цветов"],
@@ -235,10 +230,10 @@ async def build_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     return QUANTITY
 
-
+@handle_error
 async def build_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     quantity = update.message.text
-    context.user_data['bouquet_quantity'] = quantity
+    context.user_data["bouquet_quantity"] = quantity
 
     keyboard = [
         ["🎀 Лента", "🎁 Упаковка люкс"],
@@ -257,13 +252,13 @@ async def build_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     return ADDONS
 
-
+@handle_error
 async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     addons = update.message.text
-    context.user_data['bouquet_addons'] = addons
+    context.user_data["bouquet_addons"] = addons
 
-    color = context.user_data.get('bouquet_color', 'не выбран')
-    quantity = context.user_data.get('bouquet_quantity', 'не выбрано')
+    color = context.user_data.get("bouquet_color", "не выбран")
+    quantity = context.user_data.get("bouquet_quantity", "не выбрано")
 
     preview_text = (
         "🌸 Предпросмотр вашего букета:\n\n"
@@ -300,21 +295,21 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     data = response.json()
                     if data.get("images"):
                         image_generated = True
-        except Exception as e:
-            logger.error(f"Stable Diffusion API error: {e}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sd_fallback", error=str(exc))
 
     if not image_generated:
         from PIL import Image, ImageDraw
 
-        img = Image.new('RGB', (512, 512), color='white')
+        img = Image.new("RGB", (512, 512), color="white")
         draw = ImageDraw.Draw(img)
         text = f"{color}\n{quantity}\n{addons}"
-        draw.text((256, 256), text, fill='black', anchor='mm')
+        draw.text((256, 256), text, fill="black", anchor="mm")
 
         img_path = "/tmp/bouquet_preview.png"
         img.save(img_path)
 
-        with open(img_path, 'rb') as photo_file:
+        with open(img_path, "rb") as photo_file:
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=photo_file,
@@ -341,7 +336,7 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     return ConversationHandler.END
 
-
+@handle_error
 async def build_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel bouquet building."""
     await update.message.reply_text(
@@ -349,7 +344,6 @@ async def build_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         "Используйте /start чтобы начать заново."
     )
     return ConversationHandler.END
-
 
 build_conversation = ConversationHandler(
     entry_points=[
@@ -362,4 +356,5 @@ build_conversation = ConversationHandler(
         ADDONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, build_addons)],
     },
     fallbacks=[CommandHandler("cancel", build_cancel)],
+    conversation_timeout=600,
 )
