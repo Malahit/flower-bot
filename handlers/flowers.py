@@ -79,15 +79,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     welcome_text = (
-        f"👋 Привет, {user.first_name}!
-\n"
-        "🌺 Добро пожаловать в flower-bot - ваш персональный флорист!\n\n"
-        "Что я умею:\n"
-        "• 🌸 Показать каталог цветов\n"
-        "• 🤖 Подобрать букет с помощью AI\n"
-        "• 🎨 Создать букет по вашим предпочтениям\n"
-        "• 📍 Доставить по адресу\n"
-        "• 💫 Оплата через TON Stars\n\n"
+        f"👋 Привет, {user.first_name}! 🌸\n\n"
+        "Добро пожаловать в мир цветов!\n"
         "Выберите действие:"
     )
 
