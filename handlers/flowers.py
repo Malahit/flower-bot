@@ -576,7 +576,7 @@ async def _fetch_flowers_by_budget(budget: int) -> list:
         async with async_session_maker() as session:
             result = await session.execute(
                 select(Flower)
-                .where(Flower.available == True)
+                .where(Flower.available)
                 .where(Flower.price <= budget)
                 .order_by(Flower.price.desc())
             )
@@ -908,7 +908,7 @@ async def handle_add_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 
-async def handle_edit_flower(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_edit_flower(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle edit flower request - placeholder for future implementation."""
     query = update.callback_query
     await query.answer("Функция в разработке")
@@ -918,10 +918,11 @@ async def handle_edit_flower(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "Используйте /start чтобы создать новый букет"
     )
     
-    logger.info(f"Edit flower clicked (not implemented yet)")
+    logger.info(f"Edit flower clicked (not implemented yet) for user {update.effective_user.id}")
+    return ConversationHandler.END
 
 
-async def handle_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle restart - placeholder for future implementation."""
     query = update.callback_query
     await query.answer("Создайте новый букет через /start")
@@ -931,7 +932,8 @@ async def handle_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "/start → 🎨 Собрать букет"
     )
     
-    logger.info(f"Restart clicked")
+    logger.info(f"Restart clicked for user {update.effective_user.id}")
+    return ConversationHandler.END
 
 
 # ==================== Old FSM Handlers (kept for backward compatibility) ====================
