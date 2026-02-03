@@ -29,7 +29,7 @@ CHOOSE_COLOR, CHOOSE_QUANTITY, CHOOSE_ADDONS = range(3)
 # Valid options
 VALID_COLORS = {
     '🔴': 'Красный',
-    '🟡': 'Желтый', 
+    '🟡': 'Жёлтый', 
     '🔵': 'Синий',
     '🟣': 'Фиолетовый',
     '⚪': 'Белый',
@@ -45,6 +45,53 @@ VALID_ADDONS = {
 
 # Recommendation settings
 MAX_FLOWERS_IN_CATALOG = 5  # Maximum flowers to show in recommendation catalog
+
+# Message templates
+ADDONS_MESSAGE_TEMPLATE = (
+    "✅ Количество выбрано: {quantity} цветов\n\n"
+    "Шаг 3/3: Выберите дополнения (опционально):\n"
+    "Нажмите на дополнения для выбора/отмены"
+)
+
+# Helper functions for keyboard building
+def _build_color_keyboard() -> InlineKeyboardMarkup:
+    """Build color selection inline keyboard."""
+    keyboard = []
+    colors = list(VALID_COLORS.keys())
+    for i in range(0, len(colors), 3):  # 3 colors per row
+        row = [InlineKeyboardButton(color, callback_data=f"color_{color}") 
+               for color in colors[i:i+3]]
+        keyboard.append(row)
+    return InlineKeyboardMarkup(keyboard)
+
+def _build_quantity_keyboard() -> InlineKeyboardMarkup:
+    """Build quantity selection inline keyboard with back button."""
+    keyboard = []
+    for i in range(0, len(VALID_QUANTITIES), 2):
+        row = [InlineKeyboardButton(f"{qty} цветов", callback_data=f"qty_{qty}") 
+               for qty in VALID_QUANTITIES[i:i+2]]
+        keyboard.append(row)
+    # Add back button
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_color")])
+    return InlineKeyboardMarkup(keyboard)
+
+def _build_addons_keyboard(selected_addons: list) -> InlineKeyboardMarkup:
+    """Build addons selection inline keyboard with toggle functionality."""
+    keyboard = []
+    for addon_key, addon_label in VALID_ADDONS.items():
+        # Add checkmark if addon is selected
+        if addon_key in selected_addons:
+            button_text = f"✅ {addon_label}"
+        else:
+            button_text = addon_label
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"addon_{addon_key}")])
+    
+    # Add back and done buttons
+    keyboard.append([
+        InlineKeyboardButton("◀️ Назад", callback_data="back_to_quantity"),
+        InlineKeyboardButton("✅ Готово", callback_data="addons_done")
+    ])
+    return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command with AI-enhanced menu."""
@@ -496,14 +543,7 @@ async def start_build(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data["bouquet_addons"] = []
     
     # Create color selection inline keyboard
-    keyboard = []
-    colors = list(VALID_COLORS.keys())
-    for i in range(0, len(colors), 3):  # 3 colors per row
-        row = [InlineKeyboardButton(color, callback_data=f"color_{color}") 
-               for color in colors[i:i+3]]
-        keyboard.append(row)
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _build_color_keyboard()
     
     await update.message.reply_text(
         "🌸 Конструктор букетов\n\n"
@@ -528,17 +568,8 @@ async def handle_color_selection(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["color"] = color_emoji
     context.user_data["color_name"] = VALID_COLORS[color_emoji]
     
-    # Create quantity selection inline keyboard (2-column grid)
-    keyboard = []
-    for i in range(0, len(VALID_QUANTITIES), 2):
-        row = [InlineKeyboardButton(f"{qty} цветов", callback_data=f"qty_{qty}") 
-               for qty in VALID_QUANTITIES[i:i+2]]
-        keyboard.append(row)
-    
-    # Add back button
-    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_color")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Create quantity selection inline keyboard
+    reply_markup = _build_quantity_keyboard()
     
     await query.edit_message_text(
         f"✅ Цвет выбран: {color_emoji} {VALID_COLORS[color_emoji]}\n\n"
@@ -563,33 +594,12 @@ async def handle_quantity_selection(update: Update, context: ContextTypes.DEFAUL
     
     context.user_data["quantity"] = quantity
     
-    # Create addons selection inline keyboard with toggle functionality
-    keyboard = []
+    # Create addons selection inline keyboard
     selected_addons = context.user_data.get("bouquet_addons", [])
-    
-    for addon_key, addon_label in VALID_ADDONS.items():
-        # Add checkmark if addon is selected
-        if addon_key in selected_addons:
-            button_text = f"✅ {addon_label}"
-        else:
-            button_text = addon_label
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"addon_{addon_key}")])
-    
-    # Add back and done buttons
-    keyboard.append([
-        InlineKeyboardButton("◀️ Назад", callback_data="back_to_quantity"),
-        InlineKeyboardButton("✅ Готово", callback_data="addons_done")
-    ])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    color_emoji = context.user_data.get("color", "")
-    color_name = context.user_data.get("color_name", "")
+    reply_markup = _build_addons_keyboard(selected_addons)
     
     await query.edit_message_text(
-        f"✅ Количество выбрано: {quantity} цветов\n\n"
-        f"Шаг 3/3: Выберите дополнения (опционально):\n"
-        f"Нажмите на дополнения для выбора/отмены",
+        ADDONS_MESSAGE_TEMPLATE.format(quantity=quantity),
         reply_markup=reply_markup
     )
     return CHOOSE_ADDONS
@@ -616,27 +626,12 @@ async def handle_addon_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["bouquet_addons"] = selected_addons
     
     # Recreate keyboard with updated selections
-    keyboard = []
-    for key, label in VALID_ADDONS.items():
-        if key in selected_addons:
-            button_text = f"✅ {label}"
-        else:
-            button_text = label
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"addon_{key}")])
-    
-    keyboard.append([
-        InlineKeyboardButton("◀️ Назад", callback_data="back_to_quantity"),
-        InlineKeyboardButton("✅ Готово", callback_data="addons_done")
-    ])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _build_addons_keyboard(selected_addons)
     
     quantity = context.user_data.get("quantity", 0)
     
     await query.edit_message_text(
-        f"✅ Количество выбрано: {quantity} цветов\n\n"
-        f"Шаг 3/3: Выберите дополнения (опционально):\n"
-        f"Нажмите на дополнения для выбора/отмены",
+        ADDONS_MESSAGE_TEMPLATE.format(quantity=quantity),
         reply_markup=reply_markup
     )
     return CHOOSE_ADDONS
@@ -702,14 +697,7 @@ async def back_to_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         del context.user_data["color_name"]
     
     # Create color selection inline keyboard
-    keyboard = []
-    colors = list(VALID_COLORS.keys())
-    for i in range(0, len(colors), 3):  # 3 colors per row
-        row = [InlineKeyboardButton(color, callback_data=f"color_{color}") 
-               for color in colors[i:i+3]]
-        keyboard.append(row)
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _build_color_keyboard()
     
     await query.edit_message_text(
         "🌸 Конструктор букетов\n\n"
@@ -727,17 +715,8 @@ async def back_to_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Reset addons
     context.user_data["bouquet_addons"] = []
     
-    # Create quantity selection inline keyboard (2-column grid)
-    keyboard = []
-    for i in range(0, len(VALID_QUANTITIES), 2):
-        row = [InlineKeyboardButton(f"{qty} цветов", callback_data=f"qty_{qty}") 
-               for qty in VALID_QUANTITIES[i:i+2]]
-        keyboard.append(row)
-    
-    # Add back button
-    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_color")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Create quantity selection inline keyboard
+    reply_markup = _build_quantity_keyboard()
     
     color_emoji = context.user_data.get("color", "")
     color_name = context.user_data.get("color_name", "")
