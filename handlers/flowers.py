@@ -250,20 +250,14 @@ async def handle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Parse callback data: "ai:occasion:value" or "ai:occasion:value:budget:value"
         parts = query.data.split(":")
         
-        occasion = None
-        budget = "стандартный"
+        # Create a dictionary from the parts
+        data = {}
+        for i in range(0, len(parts) - 1, 2):
+            if i + 1 < len(parts):
+                data[parts[i]] = parts[i + 1]
         
-        # Parse the parts
-        i = 0
-        while i < len(parts):
-            if parts[i] == "occasion" and i + 1 < len(parts):
-                occasion = parts[i + 1]
-                i += 2
-            elif parts[i] == "budget" and i + 1 < len(parts):
-                budget = parts[i + 1]
-                i += 2
-            else:
-                i += 1
+        occasion = data.get("occasion")
+        budget = data.get("budget", "стандартный")
         
         if not occasion:
             await query.edit_message_text("❌ Ошибка: не указано событие")
@@ -302,8 +296,8 @@ async def handle_ai_menu_callback(update: Update, context: ContextTypes.DEFAULT_
     keyboard = [
         [InlineKeyboardButton("🎉 День рождения (2000₽)", callback_data="ai:occasion:birthday:budget:2000")],
         [InlineKeyboardButton("💕 Романтика (2500+₽)", callback_data="ai:occasion:love:budget:2500")],
-        [InlineKeyboardButton("🌸 Извинение (деликатно)", callback_data="ai:occasion:apology:budget:soft")],
-        [InlineKeyboardButton("💐 Свадьба (премиум)", callback_data="ai:occasion:wedding:budget:premium")],
+        [InlineKeyboardButton("🌸 Извинение (деликатно)", callback_data="ai:occasion:apology:budget:1500")],
+        [InlineKeyboardButton("💐 Свадьба (премиум)", callback_data="ai:occasion:wedding:budget:5000")],
         [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)

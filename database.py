@@ -209,5 +209,5 @@ def format_order_summary(order: Order) -> str:
             quantity = ""
         
         return f"{item_desc} {quantity}".strip()
-    except:
+    except Exception:
         return "Букет"
