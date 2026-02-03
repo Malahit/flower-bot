@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+import random
 from typing import Any, Dict
 from io import BytesIO
 
@@ -149,7 +150,7 @@ async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_T
     # Get flowers from database
     async with async_session_maker() as session:
         result = await session.execute(
-            select(Flower).where(Flower.available == True)
+            select(Flower).where(Flower.available)
         )
         flowers = result.scalars().all()
     
@@ -174,7 +175,6 @@ async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_T
             recommended = min(flowers, key=lambda x: x.price)
     else:
         # Random recommendation
-        import random
         recommended = random.choice(flowers)
     
     # Create recommendation response
@@ -342,8 +342,7 @@ async def bouquet_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     context.user_data['bouquet_addons'] = addon_names.get(addon, "Без дополнений")
     
-    # Calculate price
-    base_price = 1500
+    # Calculate price based on quantity
     qty_prices = {"5": 1000, "7": 1500, "11": 2000, "15": 2500, "21": 3000, "25": 3500}
     qty = context.user_data['bouquet_quantity'].split()[0]
     price = qty_prices.get(qty, 2000)
@@ -442,8 +441,7 @@ async def generate_bouquet_preview(bouquet_data: dict) -> BytesIO | None:
             fill_color = color_map.get(color, (255, 182, 193))
             
             # Draw a simple flower representation
-            # Draw circles to represent flowers
-            import random
+            # Draw circles to represent flowers with consistent seed
             random.seed(42)
             
             qty_str = bouquet_data.get('bouquet_quantity', '11 цветов')
