@@ -1,10 +1,3 @@
-welcome_text = f"""
-👋 Привет, {user.first_name}! 🌸
+# New file content goes here
 
-🌸 flower-bot - доставка цветов
-✨ AI рекомендации букетов
-🎨 Конструктор букетов
-💳 Оплата TON Stars
-
-Выберите действие:
-"""
+# Additional code or updates also go here
