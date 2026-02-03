@@ -89,10 +89,10 @@ async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         quantity = int(query.data.split('_')[1])
         if quantity not in VALID_QUANTITIES:
-            await query.message.reply_text("❌ Выберите из предложенных вариантов")
+            await query.answer("❌ Выберите из предложенных вариантов", show_alert=True)
             return CHOOSE_QUANTITY
     except (ValueError, IndexError):
-        await query.message.reply_text("❌ Ошибка обработки выбора")
+        await query.answer("❌ Ошибка обработки выбора", show_alert=True)
         return CHOOSE_QUANTITY
     
     context.user_data["quantity"] = quantity
