@@ -64,14 +64,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     welcome_text = (
-        f"👋 Привет, {user.first_name}!\n\n"
-        "🌺 Добро пожаловать в flower-bot - ваш персональный флорист!\n\n"
-        "Что я умею:\n"
-        "• 🌸 Показать каталог цветов\n"
-        "• 🤖 Подобрать букет с помощью AI\n"
-        "• 🎨 Создать букет по вашим предпочтениям\n"
-        "• 📍 Доставить по адресу\n"
-        "• 💫 Оплата через TON Stars\n\n"
+        f"👋 Привет, {user.first_name}!
+
+"
+        "🌺 Добро пожаловать в flower-bot - ваш персональный флорист!
+
+"
+        "Что я умею:
+"
+        "• 🌸 Показать каталог цветов
+"
+        "• 🤖 Подобрать букет с помощью AI
+"
+        "• 🎨 Создать букет по вашим предпочтениям
+"
+        "• 📍 Доставить по адресу
+"
+        "• 💫 Оплата через TON Stars
+
+"
         "Выберите действие:"
     )
     
@@ -175,7 +186,9 @@ async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_T
 async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder conversation."""
     query = update.callback_query
-    await query.answer()
+    msg = query.message if query else update.message
+    if query:
+        await query.answer()
     
     keyboard = [
         ["🔴 Красный", "🟡 Желтый"],
@@ -185,7 +198,7 @@ async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
-    await query.message.reply_text(
+    await msg.reply_text(
         "🎨 Создание вашего букета\n\n"
         "Шаг 1/3: Выберите основной цвет:",
         reply_markup=reply_markup
@@ -274,7 +287,7 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                         "width": 512,
                         "height": 512
                     },
-                    timeout=60.0
+                        timeout=60.0
                 )
                 if response.status_code == 200:
                     data = response.json()
