@@ -24,15 +24,74 @@ from database import (
 logger = logging.getLogger(__name__)
 
 # FSM States
-CHOOSE_COLOR, CHOOSE_QUANTITY, CHOOSE_ADDONS, SHOW_PREVIEW = range(4)
+CHOOSE_COLOR, CHOOSE_QUANTITY, CHOOSE_ADDONS = range(3)
 
 # Valid options
-VALID_COLORS = ['🔴', '🟢', '🔵', '🟡', '⚪']
+VALID_COLORS = {
+    '🔴': 'Красный',
+    '🟡': 'Жёлтый', 
+    '🔵': 'Синий',
+    '🟣': 'Фиолетовый',
+    '⚪': 'Белый',
+    '🌈': 'Микс'
+}
 VALID_QUANTITIES = [5, 7, 11, 15, 21, 25]
-VALID_ADDONS = ['🎀 Лента', '📦 Упаковка', '🍫 Шоколад', '🧸 Игрушка']
+VALID_ADDONS = {
+    'ribbon': '🎀 Лента',
+    'packaging': '📦 Упаковка',
+    'chocolate': '🍫 Шоколад',
+    'toy': '🧸 Игрушка'
+}
 
 # Recommendation settings
 MAX_FLOWERS_IN_CATALOG = 5  # Maximum flowers to show in recommendation catalog
+
+# Message templates
+ADDONS_MESSAGE_TEMPLATE = (
+    "✅ Количество выбрано: {quantity} цветов\n\n"
+    "Шаг 3/3: Выберите дополнения (опционально):\n"
+    "Нажмите на дополнения для выбора/отмены"
+)
+
+# Helper functions for keyboard building
+def _build_color_keyboard() -> InlineKeyboardMarkup:
+    """Build color selection inline keyboard."""
+    keyboard = []
+    colors = list(VALID_COLORS.keys())
+    for i in range(0, len(colors), 3):  # 3 colors per row
+        row = [InlineKeyboardButton(color, callback_data=f"color_{color}") 
+               for color in colors[i:i+3]]
+        keyboard.append(row)
+    return InlineKeyboardMarkup(keyboard)
+
+def _build_quantity_keyboard() -> InlineKeyboardMarkup:
+    """Build quantity selection inline keyboard with back button."""
+    keyboard = []
+    for i in range(0, len(VALID_QUANTITIES), 2):
+        row = [InlineKeyboardButton(f"{qty} цветов", callback_data=f"qty_{qty}") 
+               for qty in VALID_QUANTITIES[i:i+2]]
+        keyboard.append(row)
+    # Add back button
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_color")])
+    return InlineKeyboardMarkup(keyboard)
+
+def _build_addons_keyboard(selected_addons: list) -> InlineKeyboardMarkup:
+    """Build addons selection inline keyboard with toggle functionality."""
+    keyboard = []
+    for addon_key, addon_label in VALID_ADDONS.items():
+        # Add checkmark if addon is selected
+        if addon_key in selected_addons:
+            button_text = f"✅ {addon_label}"
+        else:
+            button_text = addon_label
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"addon_{addon_key}")])
+    
+    # Add back and done buttons
+    keyboard.append([
+        InlineKeyboardButton("◀️ Назад", callback_data="back_to_quantity"),
+        InlineKeyboardButton("✅ Готово", callback_data="addons_done")
+    ])
+    return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command with AI-enhanced menu."""
@@ -479,52 +538,229 @@ async def handle_back_to_start_callback(update: Update, context: ContextTypes.DE
 async def start_build(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder FSM."""
     logger.info(f"FSM build started for user {update.effective_user.id}")
+    
+    # Initialize user data
+    context.user_data["bouquet_addons"] = []
+    
+    # Create color selection inline keyboard
+    reply_markup = _build_color_keyboard()
+    
     await update.message.reply_text(
         "🌸 Конструктор букетов\n\n"
         "💡 Подсказка: если не уверены в выборе, попробуйте /recommend для AI-помощи\n\n"
-        "Шаг 1/4: Выберите цвет:\n🔴 🟢 🔵 🟡 ⚪"
+        "Шаг 1/3: Выберите основной цвет букета:",
+        reply_markup=reply_markup
     )
     return CHOOSE_COLOR
 
-async def choose_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Choose color step."""
-    color = update.message.text.strip()
-    if color not in VALID_COLORS:
-        await update.message.reply_text("❌ Выберите цвет из эмодзи: 🔴 🟢 🔵 🟡 ⚪")
+async def handle_color_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle color selection callback."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract color from callback data
+    color_emoji = query.data.replace("color_", "")
+    
+    if color_emoji not in VALID_COLORS:
+        await query.edit_message_text("❌ Ошибка выбора цвета. Попробуйте снова.")
         return CHOOSE_COLOR
     
-    context.user_data["color"] = color
-    await update.message.reply_text("✅ Цвет выбран!\n\nШаг 2/4: Количество (5, 7, 11, 15, 21, 25):")
+    context.user_data["color"] = color_emoji
+    context.user_data["color_name"] = VALID_COLORS[color_emoji]
+    
+    # Create quantity selection inline keyboard
+    reply_markup = _build_quantity_keyboard()
+    
+    await query.edit_message_text(
+        f"✅ Цвет выбран: {color_emoji} {VALID_COLORS[color_emoji]}\n\n"
+        f"Шаг 2/3: Выберите количество цветов:",
+        reply_markup=reply_markup
+    )
     return CHOOSE_QUANTITY
 
-async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Choose quantity step."""
+async def handle_quantity_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle quantity selection callback."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract quantity from callback data
     try:
-        quantity = int(update.message.text.strip())
+        quantity = int(query.data.replace("qty_", ""))
         if quantity not in VALID_QUANTITIES:
             raise ValueError("Invalid quantity")
     except ValueError:
-        await update.message.reply_text("❌ Укажите: 5, 7, 11, 15, 21 или 25")
+        await query.edit_message_text("❌ Ошибка выбора количества. Попробуйте снова.")
         return CHOOSE_QUANTITY
     
     context.user_data["quantity"] = quantity
-    buttons = [[InlineKeyboardButton(addon, callback_data=f"addon_{addon}")] for addon in VALID_ADDONS]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text("✅ Количество выбрано!\n\nШаг 3/4: Дополнения:", reply_markup=reply_markup)
-    return CHOOSE_QUANTITY  # Ждём callback для addons
-
-async def choose_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle addons (placeholder - use CallbackQueryHandler in prod)."""
-    await update.message.reply_text(
-        f"✅ Букет готов!\n"
-        f"Цвет: {context.user_data.get('color', 'Не выбран')}\n"
-        f"Количество: {context.user_data.get('quantity', 0)}\n"
-        f"Добавьте в корзину?"
+    
+    # Create addons selection inline keyboard
+    selected_addons = context.user_data.get("bouquet_addons", [])
+    reply_markup = _build_addons_keyboard(selected_addons)
+    
+    await query.edit_message_text(
+        ADDONS_MESSAGE_TEMPLATE.format(quantity=quantity),
+        reply_markup=reply_markup
     )
-    context.user_data["cart"] = context.user_data.get("cart", []) + [{
-        "color": context.user_data["color"],
-        "quantity": context.user_data["quantity"]
-    }]
+    return CHOOSE_ADDONS
+
+async def handle_addon_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle addon toggle callback."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract addon key from callback data
+    addon_key = query.data.replace("addon_", "")
+    
+    if addon_key not in VALID_ADDONS:
+        await query.answer("❌ Ошибка выбора дополнения")
+        return CHOOSE_ADDONS
+    
+    # Toggle addon in selected list
+    selected_addons = context.user_data.get("bouquet_addons", [])
+    if addon_key in selected_addons:
+        selected_addons.remove(addon_key)
+    else:
+        selected_addons.append(addon_key)
+    
+    context.user_data["bouquet_addons"] = selected_addons
+    
+    # Recreate keyboard with updated selections
+    reply_markup = _build_addons_keyboard(selected_addons)
+    
+    quantity = context.user_data.get("quantity", 0)
+    
+    await query.edit_message_text(
+        ADDONS_MESSAGE_TEMPLATE.format(quantity=quantity),
+        reply_markup=reply_markup
+    )
+    return CHOOSE_ADDONS
+
+async def handle_addons_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle completion of addon selection and show preview."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Get bouquet details
+    color_emoji = context.user_data.get("color", "")
+    color_name = context.user_data.get("color_name", "")
+    quantity = context.user_data.get("quantity", 0)
+    selected_addons = context.user_data.get("bouquet_addons", [])
+    
+    # Build preview text
+    preview = (
+        f"🌸 Предварительный просмотр букета\n\n"
+        f"Цвет: {color_emoji} {color_name}\n"
+        f"Количество: {quantity} цветов\n"
+    )
+    
+    if selected_addons:
+        preview += "Дополнения:\n"
+        for addon_key in selected_addons:
+            preview += f"  • {VALID_ADDONS[addon_key]}\n"
+    else:
+        preview += "Дополнения: нет\n"
+    
+    # Calculate base price (simple pricing: 100₽ per flower + 200₽ per addon)
+    base_price = quantity * 100
+    addon_price = len(selected_addons) * 200
+    total_price = base_price + addon_price
+    
+    preview += f"\n💰 Итого: {total_price}₽"
+    
+    # Create keyboard for adding to cart
+    keyboard = [
+        [InlineKeyboardButton("🧺 Добавить в корзину", callback_data="add_to_cart")],
+        [InlineKeyboardButton("◀️ Изменить", callback_data="back_to_color")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(preview, reply_markup=reply_markup)
+    
+    # Store price for cart
+    context.user_data["bouquet_price"] = total_price
+    
+    return ConversationHandler.END
+
+async def back_to_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Navigate back to color selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Reset bouquet data
+    context.user_data["bouquet_addons"] = []
+    if "quantity" in context.user_data:
+        del context.user_data["quantity"]
+    if "color" in context.user_data:
+        del context.user_data["color"]
+    if "color_name" in context.user_data:
+        del context.user_data["color_name"]
+    
+    # Create color selection inline keyboard
+    reply_markup = _build_color_keyboard()
+    
+    await query.edit_message_text(
+        "🌸 Конструктор букетов\n\n"
+        "💡 Подсказка: если не уверены в выборе, попробуйте /recommend для AI-помощи\n\n"
+        "Шаг 1/3: Выберите основной цвет букета:",
+        reply_markup=reply_markup
+    )
+    return CHOOSE_COLOR
+
+async def back_to_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Navigate back to quantity selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Reset addons
+    context.user_data["bouquet_addons"] = []
+    
+    # Create quantity selection inline keyboard
+    reply_markup = _build_quantity_keyboard()
+    
+    color_emoji = context.user_data.get("color", "")
+    color_name = context.user_data.get("color_name", "")
+    
+    await query.edit_message_text(
+        f"✅ Цвет выбран: {color_emoji} {color_name}\n\n"
+        f"Шаг 2/3: Выберите количество цветов:",
+        reply_markup=reply_markup
+    )
+    return CHOOSE_QUANTITY
+
+async def handle_add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Add bouquet to cart."""
+    query = update.callback_query
+    await query.answer("✅ Добавлено в корзину!")
+    
+    # Get bouquet details
+    color_emoji = context.user_data.get("color", "")
+    color_name = context.user_data.get("color_name", "Не указан")
+    quantity = context.user_data.get("quantity", 0)
+    selected_addons = context.user_data.get("bouquet_addons", [])
+    price = context.user_data.get("bouquet_price", 0)
+    
+    # Add to cart
+    cart_item = {
+        "type": "custom",
+        "color": f"{color_emoji} {color_name}",
+        "quantity": quantity,
+        "addons": [VALID_ADDONS[key] for key in selected_addons],
+        "price": price
+    }
+    
+    cart = context.user_data.get("cart", [])
+    cart.append(cart_item)
+    context.user_data["cart"] = cart
+    
+    await query.edit_message_text(
+        f"✅ Букет добавлен в корзину!\n\n"
+        f"Цвет: {color_emoji} {color_name}\n"
+        f"Количество: {quantity} цветов\n"
+        f"Цена: {price}₽\n\n"
+        f"Используйте /cart для просмотра корзины"
+    )
+    
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -537,11 +773,25 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 build_conversation = ConversationHandler(
     entry_points=[CommandHandler("build", start_build)],
     states={
-        CHOOSE_COLOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_color)],
-        CHOOSE_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_quantity)],
-        CHOOSE_ADDONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_addons)],
+        CHOOSE_COLOR: [
+            CallbackQueryHandler(handle_color_selection, pattern="^color_"),
+            CallbackQueryHandler(back_to_color, pattern="^back_to_color$")
+        ],
+        CHOOSE_QUANTITY: [
+            CallbackQueryHandler(handle_quantity_selection, pattern="^qty_"),
+            CallbackQueryHandler(back_to_color, pattern="^back_to_color$")
+        ],
+        CHOOSE_ADDONS: [
+            CallbackQueryHandler(handle_addon_toggle, pattern="^addon_"),
+            CallbackQueryHandler(back_to_quantity, pattern="^back_to_quantity$"),
+            CallbackQueryHandler(handle_addons_done, pattern="^addons_done$")
+        ],
     },
-    fallbacks=[CommandHandler("cancel", cancel)],
+    fallbacks=[
+        CommandHandler("cancel", cancel),
+        CallbackQueryHandler(handle_add_to_cart, pattern="^add_to_cart$"),
+        CallbackQueryHandler(back_to_color, pattern="^back_to_color$")
+    ],
 )
 
 def main_handlers(application: Application) -> None:
