@@ -21,7 +21,7 @@ VALID_COLORS = ['🔴', '🟢', '🔵', '🟡', '⚪']
 VALID_QUANTITIES = [5, 7, 11, 15, 21, 25]
 VALID_ADDONS = ['🎀 Лента', '📦 Упаковка', '🍫 Шоколад', '🧸 Игрушка']
 
-# Placeholder for build_conversation (initialized in main_handlers)
+# Placeholder for build_conversation (initialized by main_handlers function)
 build_conversation = None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -142,6 +142,7 @@ async def toggle_addon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     
     # Validate addon
     if addon not in VALID_ADDONS:
+        logger.warning(f"Invalid addon received: {addon}")
         await query.answer("❌ Недопустимое дополнение", show_alert=True)
         return CHOOSE_ADDONS
     
