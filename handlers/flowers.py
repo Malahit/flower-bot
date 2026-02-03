@@ -1,15 +1,26 @@
 """Flower catalog and AI recommendation handlers."""
-import json
 import os
 import logging
-from typing import Dict, Any
-from telegram import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import httpx
+from typing import Any, Dict
+from telegram import (
+    Update,
+    WebAppInfo,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+)
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+)
 from sqlalchemy import select
 from database import async_session_maker, Flower, User
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 # FSM states for bouquet builder
@@ -24,7 +35,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with async_session_maker() as session:
         result = await session.execute(select(User).where(User.user_id == user.id))
         db_user = result.scalars().first()
-
         if not db_user:
             db_user = User(
                 user_id=user.id,
@@ -35,12 +45,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             session.add(db_user)
             await session.commit()
 
-    # Get flowers from database
+    # Get flowers from database (not used yet, but keep for future webapp)
     async with async_session_maker() as session:
-        result = await session.execute(select(Flower).where(Flower.available == True))
-        flowers = result.scalars().all()
+        await session.execute(select(Flower).where(Flower.available == True))
 
-    # Create WebApp button
     webapp_url = os.getenv("WEBAPP_URL", "https://your-app.railway.app/webapp/")
     keyboard = [
         [InlineKeyboardButton("🌸 Открыть каталог", web_app=WebAppInfo(url=webapp_url))],
@@ -70,57 +78,51 @@ async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query:
         await query.answer()
-        await query.message.reply_text(
-            "🤖 AI Рекомендация букета\n\n"
-            "Пожалуйста, опишите:\n"
-            "• Повод (день рождения, свадьба, романтика)\n"
-            "• Бюджет в рублях\n"
-            "• Предпочтения по цвету (опционально)\n\n"
-            "Пример: повод:день рождения, бюджет:2000, цвет:розовый"
-        )
+        await query.message.reply_text(_recommend_prompt())
     else:
-        await update.message.reply_text(
-            "🤖 AI Рекомендация букета\n\n"
-            "Пожалуйста, опишите:\n"
-            "• Повод (день рождения, свадьба, романтика)\n"
-            "• Бюджет в рублях\n"
-            "• Предпочтения по цвету (опционально)\n\n"
-            "Пример: повод: день рождения, бюджет:2000, цвет:розовый"
-        )
+        await update.message.reply_text(_recommend_prompt())
+
+
+def _recommend_prompt() -> str:
+    return (
+        "🤖 AI Рекомендация букета\n\n"
+        "Пожалуйста, опишите:\n"
+        "• Повод (день рождения, свадьба, романтика)\n"
+        "• Бюджет в рублях\n"
+        "• Предпочтения по цвету (опционально)\n\n"
+        "Пример: повод:день рождения, бюджет:2000, цвет:розовый"
+    )
 
 
 async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process AI recommendation request."""
     user_input = update.message.text
 
-    # Parse user input
-    params = {}
+    params: Dict[str, Any] = {}
     for part in user_input.split(','):
         if ':' in part:
             key, value = part.split(':', 1)
             params[key.strip()] = value.strip()
 
-    # Get available flowers
     async with async_session_maker() as session:
         result = await session.execute(select(Flower).where(Flower.available == True))
         flowers = result.scalars().all()
+        flowers_context = "\n".join(
+            [f"- {f.name}: {f.description}, цена: {f.price}₽" for f in flowers]
+        )
 
-        flowers_context = "\n".join([f"- {f.name}: {f.description}, цена: {f.price}₽" for f in flowers])
-
-    # Call Perplexity API
     perplexity_key = os.getenv("PERPLEXITY_API_KEY")
     if not perplexity_key or perplexity_key == "your_perplexity_key_here":
-        # Mock response for demo
         recommendation = (
-            f"🌸 Рекомендация на основе ваших пожеланий:\n\n"
+            "🌸 Рекомендация на основе ваших пожеланий:\n\n"
             f"Повод: {params.get('повод', 'не указан')}\n"
             f"Бюджет: {params.get('бюджет', 'не указан')}₽\n\n"
-            f"💐 Рекомендуем: Букет 'День рождения'\n"
-            f"Яркий микс из роз, хризантем и альстромерий - идеально подходит для вашего случая!\n"
-            f"Цена: 2000₽\n\n"
-            f"Или рассмотрите:\n"
-            f"• Розы классические - 2500₽\n"
-            f"• Тюльпаны микс - 1800₽"
+            "💐 Рекомендуем: Букет 'День рождения'\n"
+            "Яркий микс из роз, хризантем и альстромерий — идеально подходит для вашего случая!\n"
+            "Цена: 2000₽\n\n"
+            "Или рассмотрите:\n"
+            "• Розы классические - 2500₽\n"
+            "• Тюльпаны микс - 1800₽"
         )
     else:
         try:
@@ -150,12 +152,14 @@ async def process_recommendation(update: Update, context: ContextTypes.DEFAULT_T
                 data = response.json()
                 recommendation = "🌸 " + data["choices"][0]["message"]["content"]
         except Exception as e:
-            recommendation = f"❌ Ошибка при получении рекомендации: {str(e)}\n\nПопробуйте позже или выберите букет из каталога."
+            recommendation = (
+                f"❌ Ошибка при получении рекомендации: {e}\n\n"
+                "Попробуйте позже или выберите букет из каталога."
+            )
 
     await update.message.reply_text(recommendation)
 
 
-# Bouquet builder FSM handlers
 async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder conversation."""
     query = update.callback_query
@@ -169,7 +173,9 @@ async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         ["🟢 Зеленый", "⚪ Белый"],
         ["🟠 Оранжевый", "🟤 Микс"],
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, one_time_keyboard=True, resize_keyboard=True
+    )
 
     await msg.reply_text(
         "🎨 Создание вашего букета\n\n"
@@ -181,7 +187,6 @@ async def build_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def build_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Process color selection."""
     color = update.message.text
     context.user_data['bouquet_color'] = color
 
@@ -190,7 +195,9 @@ async def build_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         ["11 цветов", "15 цветов"],
         ["21 цветок", "25 цветов"],
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, one_time_keyboard=True, resize_keyboard=True
+    )
 
     await update.message.reply_text(
         f"✅ Цвет выбран: {color}\n\n"
@@ -202,7 +209,6 @@ async def build_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def build_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Process quantity selection."""
     quantity = update.message.text
     context.user_data['bouquet_quantity'] = quantity
 
@@ -211,7 +217,9 @@ async def build_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ["🧸 Мягкая игрушка", "🍫 Конфеты"],
         ["❌ Без дополнений"],
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, one_time_keyboard=True, resize_keyboard=True
+    )
 
     await update.message.reply_text(
         f"✅ Количество выбрано: {quantity}\n\n"
@@ -223,11 +231,9 @@ async def build_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Process addons and generate preview."""
     addons = update.message.text
     context.user_data['bouquet_addons'] = addons
 
-    # Generate preview text
     color = context.user_data.get('bouquet_color', 'не выбран')
     quantity = context.user_data.get('bouquet_quantity', 'не выбрано')
 
@@ -241,13 +247,15 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     message = await update.message.reply_text(preview_text)
 
-    # Try to generate image using Stable Diffusion
     sd_url = os.getenv("STABLE_DIFFUSION_API_URL")
     image_generated = False
 
     if sd_url and sd_url != "http://localhost:7860":
         try:
-            prompt = f"beautiful flower bouquet, {color} flowers, {quantity}, professional photography, high quality"
+            prompt = (
+                f"beautiful flower bouquet, {color} flowers, {quantity}, "
+                "professional photography, high quality"
+            )
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{sd_url}/sdapi/v1/txt2img",
@@ -268,7 +276,7 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             logger.error(f"Stable Diffusion API error: {e}")
 
     if not image_generated:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
 
         img = Image.new('RGB', (512, 512), color='white')
         draw = ImageDraw.Draw(img)
@@ -285,7 +293,6 @@ async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 caption=preview_text,
             )
 
-    # Add reactions buttons
     keyboard = [
         [
             InlineKeyboardButton("🌸", callback_data="react_flower"),
@@ -316,7 +323,6 @@ async def build_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return ConversationHandler.END
 
 
-# Conversation handler for bouquet builder
 build_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("build", build_start),
