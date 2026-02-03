@@ -8,6 +8,7 @@ import httpx
 from yandex_geocoder import Client as YandexGeocoder
 from sqlalchemy import select
 from database import async_session_maker, Order, User, Flower
+from handlers.navigation import add_back_button
 
 
 async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -40,6 +41,8 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not cart:
         text = "🛒 Ваша корзина пуста\n\nИспользуйте /start для выбора цветов"
         keyboard = [[InlineKeyboardButton("🌸 К каталогу", callback_data="start")]]
+        # Add back button
+        add_back_button(keyboard)
     else:
         total = sum(item['price'] for item in cart)
         
@@ -64,6 +67,8 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             [InlineKeyboardButton("🗑️ Очистить корзину", callback_data="clear_cart")],
             [InlineKeyboardButton("🌸 Продолжить покупки", callback_data="start")]
         ]
+        # Add back button
+        add_back_button(keyboard)
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     

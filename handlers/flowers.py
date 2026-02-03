@@ -20,6 +20,17 @@ from database import (
     get_user_last_order, 
     format_order_summary
 )
+from handlers.navigation import (
+    register_screen,
+    push_screen,
+    add_back_button,
+    SCREEN_START,
+    SCREEN_AI_MENU,
+    SCREEN_CATALOG,
+    SCREEN_CART,
+    SCREEN_HISTORY,
+    SCREEN_RECOMMEND_PRESETS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +104,14 @@ def _build_addons_keyboard(selected_addons: list) -> InlineKeyboardMarkup:
     ])
     return InlineKeyboardMarkup(keyboard)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command with AI-enhanced menu."""
+async def _render_start_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback: bool = False) -> None:
+    """Render the start menu.
+    
+    Args:
+        update: The update object
+        context: The context object
+        is_callback: True if called from a callback query, False if from a command
+    """
     user = update.effective_user
     
     # Build personalized greeting
@@ -153,26 +170,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Get popular flower for photo
-    flower = await get_popular_flower()
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_START
+    context.user_data["nav_stack"] = []  # Clear stack at start
     
-    if flower and flower.photo_url:
-        # Send photo with caption
-        await update.message.reply_photo(
-            photo=flower.photo_url,
-            caption=greeting,
-            reply_markup=reply_markup
-        )
+    if is_callback:
+        # Update existing message (callback query)
+        query = update.callback_query
+        await query.edit_message_text(greeting, reply_markup=reply_markup)
     else:
-        # Fallback: use a placeholder photo URL
-        fallback_photo = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23"
-        await update.message.reply_photo(
-            photo=fallback_photo,
-            caption=greeting,
-            reply_markup=reply_markup
-        )
+        # Get popular flower for photo
+        flower = await get_popular_flower()
+        
+        if flower and flower.photo_url:
+            # Send photo with caption
+            await update.message.reply_photo(
+                photo=flower.photo_url,
+                caption=greeting,
+                reply_markup=reply_markup
+            )
+        else:
+            # Fallback: use a placeholder photo URL
+            fallback_photo = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23"
+            await update.message.reply_photo(
+                photo=fallback_photo,
+                caption=greeting,
+                reply_markup=reply_markup
+            )
     
-    logger.info(f"User {user.id} started bot with AI-enhanced menu")
+    logger.info(f"User {user.id} {'navigated to' if is_callback else 'started'} bot with AI-enhanced menu")
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start command with AI-enhanced menu."""
+    await _render_start_menu(update, context, is_callback=False)
+
 
 async def _generate_recommendation(occasion: str, budget: str) -> str:
     """
@@ -257,8 +289,8 @@ async def _generate_recommendation(occasion: str, budget: str) -> str:
     )
 
 
-async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /recommend command."""
+async def _render_recommend_presets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the recommend presets screen."""
     # Create preset buttons
     keyboard = [
         [InlineKeyboardButton("🎉 День рождения (2000₽)", callback_data="rec_preset:birthday:2000")],
@@ -266,13 +298,31 @@ async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [InlineKeyboardButton("🌸 Извинение & Благодарность (деликатно)", callback_data="rec_preset:apology:soft")],
         [InlineKeyboardButton("💐 Годовщина (премиум)", callback_data="rec_preset:wedding:premium")],
     ]
+    # Add back button
+    add_back_button(keyboard)
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
+    text = (
         "🤖 Выберите готовый вариант или опишите свой запрос:\n"
-        "(например: 'повод: день рождения, бюджет: 3000')",
-        reply_markup=reply_markup
+        "(например: 'повод: день рождения, бюджет: 3000')"
     )
+    
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_RECOMMEND_PRESETS
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
+
+
+async def recommend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /recommend command."""
+    # Push previous screen to stack if exists
+    if "current_screen" in context.user_data:
+        push_screen(context, SCREEN_RECOMMEND_PRESETS)
+    
+    await _render_recommend_presets(update, context)
     logger.info("Recommend command called")
 
 # FSM Handlers
@@ -291,8 +341,12 @@ async def handle_preset_callback(update: Update, context: ContextTypes.DEFAULT_T
         # Generate recommendation using the helper
         recommendation = await _generate_recommendation(occasion, budget)
         
+        # Add back button to recommendation
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="nav_back")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         # Send recommendation
-        await query.edit_message_text(recommendation)
+        await query.edit_message_text(recommendation, reply_markup=reply_markup)
         logger.info(f"Preset recommendation generated: {occasion}, {budget}")
         
     except Exception as e:
@@ -304,6 +358,10 @@ async def handle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle AI preset callbacks (ai:occasion:X:budget:Y or ai:occasion:X)."""
     query = update.callback_query
     await query.answer()
+    
+    # Push current screen to stack before navigating
+    if "current_screen" in context.user_data:
+        push_screen(context, "ai_preset_result")
     
     try:
         # Parse callback data: "ai:occasion:value" or "ai:occasion:value:budget:value"
@@ -337,8 +395,12 @@ async def handle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Generate recommendation using the shared helper
         recommendation = await _generate_recommendation(occasion_ru, budget)
         
+        # Add back button to recommendation
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="nav_back")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         # Send recommendation
-        await query.edit_message_text(recommendation)
+        await query.edit_message_text(recommendation, reply_markup=reply_markup)
         logger.info(f"AI preset recommendation generated: {occasion}, {budget}")
         
     except Exception as e:
@@ -346,34 +408,47 @@ async def handle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ Ошибка при генерации рекомендации. Попробуйте снова.")
 
 
-async def handle_ai_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle AI menu callback - show AI recommendation menu."""
-    query = update.callback_query
-    await query.answer()
-    
+async def _render_ai_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the AI menu screen."""
     # Create preset buttons (same as /recommend)
     keyboard = [
         [InlineKeyboardButton("🎉 День рождения (2000₽)", callback_data="ai:occasion:birthday:budget:2000")],
         [InlineKeyboardButton("💕 Романтика (2500+₽)", callback_data="ai:occasion:love:budget:2500")],
         [InlineKeyboardButton("🌸 Извинение & Благодарность (деликатно)", callback_data="ai:occasion:apology:budget:1500")],
         [InlineKeyboardButton("💐 Годовщина (премиум)", callback_data="ai:occasion:wedding:budget:5000")],
-        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
     ]
+    # Add back button using navigation
+    add_back_button(keyboard)
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.edit_message_text(
+    text = (
         "🤖 AI-рекомендации\n\n"
         "Выберите готовый вариант или опишите свой запрос:\n"
-        "(например: 'повод: день рождения, бюджет: 3000')",
-        reply_markup=reply_markup
+        "(например: 'повод: день рождения, бюджет: 3000')"
     )
+    
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_AI_MENU
+    
+    query = update.callback_query
+    await query.edit_message_text(text, reply_markup=reply_markup)
     logger.info("AI menu displayed")
 
 
-async def handle_catalog_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle catalog callback - show flower catalog."""
+async def handle_ai_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle AI menu callback - show AI recommendation menu."""
     query = update.callback_query
     await query.answer()
+    
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_AI_MENU)
+    
+    await _render_ai_menu(update, context)
+
+
+async def _render_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the catalog screen."""
+    query = update.callback_query
     
     # Fetch available flowers from database
     try:
@@ -388,8 +463,13 @@ async def handle_catalog_callback(update: Update, context: ContextTypes.DEFAULT_
                 for flower in flowers:
                     text += f"• {flower.name}\n  {flower.description}\n  💰 {flower.price}₽\n\n"
                 
-                keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]]
+                keyboard = []
+                # Add back button using navigation
+                add_back_button(keyboard)
                 reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Set current screen
+                context.user_data["current_screen"] = SCREEN_CATALOG
                 
                 await query.edit_message_text(text, reply_markup=reply_markup)
             else:
@@ -403,16 +483,32 @@ async def handle_catalog_callback(update: Update, context: ContextTypes.DEFAULT_
         )
 
 
-async def handle_cart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle cart callback - show current cart."""
+async def handle_catalog_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle catalog callback - show flower catalog."""
     query = update.callback_query
     await query.answer()
+    
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_CATALOG)
+    
+    await _render_catalog(update, context)
+
+
+async def _render_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the cart screen."""
+    query = update.callback_query
     
     cart = context.user_data.get('cart', [])
     
     if not cart:
-        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]]
+        keyboard = []
+        # Add back button using navigation
+        add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Set current screen
+        context.user_data["current_screen"] = SCREEN_CART
+        
         await query.edit_message_text(
             "🧺 Корзина пуста\n\nИспользуйте меню для выбора цветов",
             reply_markup=reply_markup
@@ -436,18 +532,31 @@ async def handle_cart_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         
         keyboard = [
             [InlineKeyboardButton("💫 Оформить заказ", callback_data="checkout")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
         ]
+        # Add back button using navigation
+        add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Set current screen
+        context.user_data["current_screen"] = SCREEN_CART
         
         await query.edit_message_text(text, reply_markup=reply_markup)
 
 
-async def handle_history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle history callback - show last order."""
+async def handle_cart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle cart callback - show current cart."""
     query = update.callback_query
     await query.answer()
     
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_CART)
+    
+    await _render_cart(update, context)
+
+
+async def _render_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the history screen."""
+    query = update.callback_query
     user = update.effective_user
     last_order = await get_user_last_order(user.id)
     
@@ -464,18 +573,39 @@ async def handle_history_callback(update: Update, context: ContextTypes.DEFAULT_
         
         keyboard = [
             [InlineKeyboardButton("🔄 Повторить заказ", callback_data=f"repeat_order_{last_order.id}")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
         ]
+        # Add back button using navigation
+        add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Set current screen
+        context.user_data["current_screen"] = SCREEN_HISTORY
         
         await query.edit_message_text(text, reply_markup=reply_markup)
     else:
-        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]]
+        keyboard = []
+        # Add back button using navigation
+        add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Set current screen
+        context.user_data["current_screen"] = SCREEN_HISTORY
+        
         await query.edit_message_text(
             "🕒 Нет заказов\n\nСделайте первый заказ!",
             reply_markup=reply_markup
         )
+
+
+async def handle_history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle history callback - show last order."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_HISTORY)
+    
+    await _render_history(update, context)
 
 
 async def handle_build_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -491,47 +621,18 @@ async def handle_build_start_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def handle_back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle back to start callback - show start menu again."""
+    """Handle back to start callback - show start menu again.
+    
+    This is kept for backward compatibility but redirects to the start menu render function.
+    """
     query = update.callback_query
     await query.answer()
     
-    user = update.effective_user
+    # Clear navigation stack since we're going to start
+    context.user_data["nav_stack"] = []
+    context.user_data["current_screen"] = SCREEN_START
     
-    # Build greeting (simplified version without DB query for callback)
-    greeting = (
-        f"👋 {user.first_name}! 🌸\n\n"
-        "🌸 Выберите действие:\n"
-        "• Каталог - просмотр всех букетов\n"
-        "• AI-рекомендация - умный подбор\n"
-        "• Собрать букет - конструктор\n"
-        "• Быстрые AI-варианты - готовые решения"
-    )
-    
-    # Create inline keyboard
-    keyboard = [
-        [
-            InlineKeyboardButton("🌸 Каталог", callback_data="catalog"),
-            InlineKeyboardButton("🤖 AI-рекомендация", callback_data="ai_menu")
-        ],
-        [
-            InlineKeyboardButton("🎨 Собрать букет", callback_data="build_start"),
-            InlineKeyboardButton("🧺 Корзина", callback_data="cart")
-        ],
-        [
-            InlineKeyboardButton("🎉 День рождения", callback_data="ai:occasion:birthday:budget:2000"),
-            InlineKeyboardButton("💕 Романтика 2500₽", callback_data="ai:occasion:love:budget:2500")
-        ],
-        [
-            InlineKeyboardButton("🕒 Повторить заказ", callback_data="history"),
-            InlineKeyboardButton("💍 Годовщина", callback_data="ai:occasion:wedding")
-        ],
-        [
-            InlineKeyboardButton("😔 Извинение & Благодарность", callback_data="ai:occasion:apology")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(greeting, reply_markup=reply_markup)
+    await _render_start_menu(update, context, is_callback=True)
 
 
 # FSM Handlers
@@ -796,6 +897,14 @@ build_conversation = ConversationHandler(
 
 def main_handlers(application: Application) -> None:
     """Register all flower handlers."""
+    # Register screen renderers for navigation
+    register_screen(SCREEN_START, _render_start_menu)
+    register_screen(SCREEN_AI_MENU, _render_ai_menu)
+    register_screen(SCREEN_CATALOG, _render_catalog)
+    register_screen(SCREEN_CART, _render_cart)
+    register_screen(SCREEN_HISTORY, _render_history)
+    register_screen(SCREEN_RECOMMEND_PRESETS, _render_recommend_presets)
+    
     # Commands
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("recommend", recommend))

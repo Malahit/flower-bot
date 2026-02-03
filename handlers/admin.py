@@ -10,6 +10,15 @@ from minio import Minio
 from minio.error import S3Error
 import base64
 from database import async_session_maker, Flower, Order, User
+from handlers.navigation import (
+    register_screen,
+    push_screen,
+    add_back_button,
+    SCREEN_ADMIN_MAIN,
+    SCREEN_ADMIN_LIST_FLOWERS,
+    SCREEN_ADMIN_ORDERS,
+    SCREEN_ADMIN_USERS,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,6 +38,32 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
+async def _render_admin_main(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the main admin panel."""
+    keyboard = [
+        [InlineKeyboardButton("➕ Добавить цветок", callback_data="admin_add_flower")],
+        [InlineKeyboardButton("📋 Список цветов", callback_data="admin_list_flowers")],
+        [InlineKeyboardButton("📦 Заказы", callback_data="admin_orders")],
+        [InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")]
+    ]
+    # Add back button using navigation
+    add_back_button(keyboard)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = (
+        "🔧 Панель администратора\n\n"
+        "Выберите действие:"
+    )
+    
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_ADMIN_MAIN
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
+
+
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /admin command - show admin panel."""
     user = update.effective_user
@@ -37,25 +72,16 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ У вас нет прав администратора")
         return
     
-    keyboard = [
-        [InlineKeyboardButton("➕ Добавить цветок", callback_data="admin_add_flower")],
-        [InlineKeyboardButton("📋 Список цветов", callback_data="admin_list_flowers")],
-        [InlineKeyboardButton("📦 Заказы", callback_data="admin_orders")],
-        [InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Push previous screen to stack if exists
+    if "current_screen" in context.user_data:
+        push_screen(context, SCREEN_ADMIN_MAIN)
     
-    await update.message.reply_text(
-        "🔧 Панель администратора\n\n"
-        "Выберите действие:",
-        reply_markup=reply_markup
-    )
+    await _render_admin_main(update, context)
 
 
-async def admin_list_flowers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """List all flowers."""
+async def _render_admin_list_flowers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the admin list flowers screen."""
     query = update.callback_query
-    await query.answer()
     
     async with async_session_maker() as session:
         result = await session.execute(select(Flower).order_by(Flower.id))
@@ -76,17 +102,31 @@ async def admin_list_flowers(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     keyboard = [
         [InlineKeyboardButton("🗑️ Удалить цветок", callback_data="admin_delete_flower")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="admin_back")]
     ]
+    # Add back button using navigation
+    add_back_button(keyboard)
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.message.edit_text(text, reply_markup=reply_markup)
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_ADMIN_LIST_FLOWERS
+    
+    await query.edit_message_text(text, reply_markup=reply_markup)
 
 
-async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """View all orders."""
+async def admin_list_flowers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List all flowers."""
     query = update.callback_query
     await query.answer()
+    
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_ADMIN_LIST_FLOWERS)
+    
+    await _render_admin_list_flowers(update, context)
+
+
+async def _render_admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the admin orders screen."""
+    query = update.callback_query
     
     async with async_session_maker() as session:
         result = await session.execute(
@@ -109,22 +149,35 @@ async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     f"📅 Дата: {order.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
                 )
     
-    keyboard = [
-        [InlineKeyboardButton("🔙 Назад", callback_data="admin_back")]
-    ]
+    keyboard = []
+    # Add back button using navigation
+    add_back_button(keyboard)
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     # Split message if too long
     if len(text) > 4000:
         text = text[:4000] + "\n\n... (показаны первые заказы)"
     
-    await query.message.edit_text(text, reply_markup=reply_markup)
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_ADMIN_ORDERS
+    
+    await query.edit_message_text(text, reply_markup=reply_markup)
 
 
-async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """View all users."""
+async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View all orders."""
     query = update.callback_query
     await query.answer()
+    
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_ADMIN_ORDERS)
+    
+    await _render_admin_orders(update, context)
+
+
+async def _render_admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Render the admin users screen."""
+    query = update.callback_query
     
     async with async_session_maker() as session:
         result = await session.execute(
@@ -145,35 +198,44 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     f"📅 Регистрация: {user.created_at.strftime('%Y-%m-%d')}\n\n"
                 )
     
-    keyboard = [
-        [InlineKeyboardButton("🔙 Назад", callback_data="admin_back")]
-    ]
+    keyboard = []
+    # Add back button using navigation
+    add_back_button(keyboard)
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if len(text) > 4000:
         text = text[:4000] + "\n\n... (показаны первые пользователи)"
     
-    await query.message.edit_text(text, reply_markup=reply_markup)
+    # Set current screen
+    context.user_data["current_screen"] = SCREEN_ADMIN_USERS
+    
+    await query.edit_message_text(text, reply_markup=reply_markup)
 
 
-async def admin_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Go back to admin panel."""
+async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View all users."""
     query = update.callback_query
     await query.answer()
     
-    keyboard = [
-        [InlineKeyboardButton("➕ Добавить цветок", callback_data="admin_add_flower")],
-        [InlineKeyboardButton("📋 Список цветов", callback_data="admin_list_flowers")],
-        [InlineKeyboardButton("📦 Заказы", callback_data="admin_orders")],
-        [InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Push current screen to stack before navigating
+    push_screen(context, SCREEN_ADMIN_USERS)
     
-    await query.message.edit_text(
-        "🔧 Панель администратора\n\n"
-        "Выберите действие:",
-        reply_markup=reply_markup
-    )
+    await _render_admin_users(update, context)
+
+
+async def admin_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Go back to admin panel.
+    
+    This handler is kept for backward compatibility but redirects to the admin main render function.
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    # Clear navigation to admin main
+    context.user_data["nav_stack"] = []
+    context.user_data["current_screen"] = SCREEN_ADMIN_MAIN
+    
+    await _render_admin_main(update, context)
 
 
 # Add flower conversation handlers
@@ -401,3 +463,12 @@ add_flower_conversation = ConversationHandler(
     },
     fallbacks=[CommandHandler("cancel", add_flower_cancel)],
 )
+
+
+# Register admin screen renderers for navigation
+def register_admin_screens() -> None:
+    """Register admin screen renderers."""
+    register_screen(SCREEN_ADMIN_MAIN, _render_admin_main)
+    register_screen(SCREEN_ADMIN_LIST_FLOWERS, _render_admin_list_flowers)
+    register_screen(SCREEN_ADMIN_ORDERS, _render_admin_orders)
+    register_screen(SCREEN_ADMIN_USERS, _render_admin_users)
