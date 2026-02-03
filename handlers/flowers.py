@@ -169,9 +169,6 @@ async def back_to_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
     
-    # Reset addons
-    context.user_data["addons"] = []
-    
     # Create inline keyboard with quantity options
     buttons = []
     for i in range(0, len(VALID_QUANTITIES), 2):
