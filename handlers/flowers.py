@@ -12,7 +12,14 @@ from telegram.ext import (
     filters,
 )
 from sqlalchemy import select
-from database import async_session_maker, Flower
+from database import (
+    async_session_maker, 
+    Flower, 
+    get_user, 
+    get_popular_flower, 
+    get_user_last_order, 
+    format_order_summary
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +35,85 @@ VALID_ADDONS = ['🎀 Лента', '📦 Упаковка', '🍫 Шоколад
 MAX_FLOWERS_IN_CATALOG = 5  # Maximum flowers to show in recommendation catalog
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command."""
+    """Handle /start command with AI-enhanced menu."""
     user = update.effective_user
-    await update.message.reply_text(
-        f"👋 Привет, {user.first_name}! 🌸\n\n"
-        "/recommend - AI рекомендации\n"
-        "/build - Собрать букет\n"
-        "/cart - Корзина"
+    
+    # Build personalized greeting
+    greeting = f"👋 Привет, {user.first_name}! 🌸\n\n"
+    
+    # Get user data for personalization
+    db_user = await get_user(user.id)
+    last_order = await get_user_last_order(user.id)
+    
+    if db_user and (db_user.preferred_colors or db_user.preferred_budget or last_order):
+        # Add personalization
+        prefs = []
+        if db_user.preferred_colors:
+            prefs.append(f"{db_user.preferred_colors}")
+        if db_user.preferred_budget:
+            prefs.append(f"до {int(db_user.preferred_budget)}₽")
+        
+        if prefs:
+            greeting += f"Любите {' '.join(prefs)}. "
+        
+        if last_order:
+            order_summary = format_order_summary(last_order)
+            greeting += f"Повторить прошлый? ({order_summary})\n\n"
+        else:
+            greeting += "\n"
+    
+    greeting += (
+        "🌸 Выберите действие:\n"
+        "• Каталог - просмотр всех букетов\n"
+        "• AI-рекомендация - умный подбор\n"
+        "• Собрать букет - конструктор\n"
+        "• Быстрые AI-варианты - готовые решения"
     )
-    logger.info(f"User {user.id} started bot")
+    
+    # Create inline keyboard
+    keyboard = [
+        [
+            InlineKeyboardButton("🌸 Каталог", callback_data="catalog"),
+            InlineKeyboardButton("🤖 AI-рекомендация", callback_data="ai_menu")
+        ],
+        [
+            InlineKeyboardButton("🎨 Собрать букет", callback_data="build_start"),
+            InlineKeyboardButton("🧺 Корзина", callback_data="cart")
+        ],
+        [
+            InlineKeyboardButton("🎉 ДР 2000₽", callback_data="ai:occasion:birthday:budget:2000"),
+            InlineKeyboardButton("💕 Романтика 2500₽", callback_data="ai:occasion:love:budget:2500")
+        ],
+        [
+            InlineKeyboardButton("🕒 Последний заказ", callback_data="history"),
+            InlineKeyboardButton("💍 Свадьба", callback_data="ai:occasion:wedding")
+        ],
+        [
+            InlineKeyboardButton("😔 Извинения", callback_data="ai:occasion:apology")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Get popular flower for photo
+    flower = await get_popular_flower()
+    
+    if flower and flower.photo_url:
+        # Send photo with caption
+        await update.message.reply_photo(
+            photo=flower.photo_url,
+            caption=greeting,
+            reply_markup=reply_markup
+        )
+    else:
+        # Fallback: use a placeholder photo URL
+        fallback_photo = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23"
+        await update.message.reply_photo(
+            photo=fallback_photo,
+            caption=greeting,
+            reply_markup=reply_markup
+        )
+    
+    logger.info(f"User {user.id} started bot with AI-enhanced menu")
 
 async def _generate_recommendation(occasion: str, budget: str) -> str:
     """
@@ -164,6 +241,247 @@ async def handle_preset_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("❌ Ошибка при генерации рекомендации. Попробуйте снова.")
 
 
+async def handle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle AI preset callbacks (ai:occasion:X:budget:Y or ai:occasion:X)."""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        # Parse callback data: "ai:occasion:value" or "ai:occasion:value:budget:value"
+        parts = query.data.split(":")
+        
+        occasion = None
+        budget = "стандартный"
+        
+        # Parse the parts
+        i = 0
+        while i < len(parts):
+            if parts[i] == "occasion" and i + 1 < len(parts):
+                occasion = parts[i + 1]
+                i += 2
+            elif parts[i] == "budget" and i + 1 < len(parts):
+                budget = parts[i + 1]
+                i += 2
+            else:
+                i += 1
+        
+        if not occasion:
+            await query.edit_message_text("❌ Ошибка: не указано событие")
+            return
+        
+        # Map occasion to Russian
+        occasion_map = {
+            "birthday": "день рождения",
+            "love": "романтика",
+            "wedding": "свадьба",
+            "apology": "извинение"
+        }
+        occasion_ru = occasion_map.get(occasion, occasion)
+        
+        # Show processing message
+        await query.edit_message_text("🤖 Генерирую рекомендацию...")
+        
+        # Generate recommendation using the shared helper
+        recommendation = await _generate_recommendation(occasion_ru, budget)
+        
+        # Send recommendation
+        await query.edit_message_text(recommendation)
+        logger.info(f"AI preset recommendation generated: {occasion}, {budget}")
+        
+    except Exception as e:
+        logger.error(f"Error handling AI callback: {e}")
+        await query.edit_message_text("❌ Ошибка при генерации рекомендации. Попробуйте снова.")
+
+
+async def handle_ai_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle AI menu callback - show AI recommendation menu."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Create preset buttons (same as /recommend)
+    keyboard = [
+        [InlineKeyboardButton("🎉 День рождения (2000₽)", callback_data="ai:occasion:birthday:budget:2000")],
+        [InlineKeyboardButton("💕 Романтика (2500+₽)", callback_data="ai:occasion:love:budget:2500")],
+        [InlineKeyboardButton("🌸 Извинение (деликатно)", callback_data="ai:occasion:apology:budget:soft")],
+        [InlineKeyboardButton("💐 Свадьба (премиум)", callback_data="ai:occasion:wedding:budget:premium")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🤖 AI-рекомендации\n\n"
+        "Выберите готовый вариант или опишите свой запрос:\n"
+        "(например: 'повод: день рождения, бюджет: 3000')",
+        reply_markup=reply_markup
+    )
+    logger.info("AI menu displayed")
+
+
+async def handle_catalog_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle catalog callback - show flower catalog."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Fetch available flowers from database
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(Flower).where(Flower.available == True)
+            )
+            flowers = result.scalars().all()
+            
+            if flowers:
+                text = "🌸 Каталог букетов:\n\n"
+                for flower in flowers:
+                    text += f"• {flower.name}\n  {flower.description}\n  💰 {flower.price}₽\n\n"
+                
+                keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(text, reply_markup=reply_markup)
+            else:
+                await query.edit_message_text(
+                    "❌ Каталог временно недоступен\n\n/start для возврата в меню"
+                )
+    except Exception as e:
+        logger.error(f"Error fetching catalog: {e}")
+        await query.edit_message_text(
+            "❌ Ошибка при загрузке каталога\n\n/start для возврата в меню"
+        )
+
+
+async def handle_cart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle cart callback - show current cart."""
+    query = update.callback_query
+    await query.answer()
+    
+    cart = context.user_data.get('cart', [])
+    
+    if not cart:
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🧺 Корзина пуста\n\nИспользуйте меню для выбора цветов",
+            reply_markup=reply_markup
+        )
+    else:
+        total = sum(item.get('price', 0) for item in cart)
+        
+        text = "🧺 Ваша корзина:\n\n"
+        for i, item in enumerate(cart, 1):
+            if item.get('type') == 'custom':
+                text += (
+                    f"{i}. Букет на заказ\n"
+                    f"   Цвет: {item.get('color', 'Микс')}\n"
+                    f"   Количество: {item.get('quantity', '')}\n"
+                    f"   Цена: {item.get('price', 0)}₽\n\n"
+                )
+            else:
+                text += f"{i}. {item.get('name', 'Букет')} - {item.get('price', 0)}₽\n"
+        
+        text += f"\n💰 Итого: {total}₽"
+        
+        keyboard = [
+            [InlineKeyboardButton("💫 Оформить заказ", callback_data="checkout")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(text, reply_markup=reply_markup)
+
+
+async def handle_history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle history callback - show last order."""
+    query = update.callback_query
+    await query.answer()
+    
+    user = update.effective_user
+    last_order = await get_user_last_order(user.id)
+    
+    if last_order:
+        order_summary = format_order_summary(last_order)
+        text = (
+            f"🕒 Последний заказ:\n\n"
+            f"Заказ #{last_order.id}\n"
+            f"📦 {order_summary}\n"
+            f"💰 {last_order.total_price}₽\n"
+            f"📅 {last_order.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            f"📊 Статус: {last_order.status}"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Повторить заказ", callback_data=f"repeat_order_{last_order.id}")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🕒 Нет заказов\n\nСделайте первый заказ!",
+            reply_markup=reply_markup
+        )
+
+
+async def handle_build_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle build_start callback - start bouquet builder."""
+    query = update.callback_query
+    await query.answer()
+    
+    await query.message.reply_text(
+        "🌸 Конструктор букетов\n\n"
+        "💡 Подсказка: если не уверены в выборе, попробуйте /recommend для AI-помощи\n\n"
+        "Используйте команду /build для начала конструктора"
+    )
+
+
+async def handle_back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle back to start callback - show start menu again."""
+    query = update.callback_query
+    await query.answer()
+    
+    user = update.effective_user
+    
+    # Build greeting (simplified version without DB query for callback)
+    greeting = (
+        f"👋 {user.first_name}! 🌸\n\n"
+        "🌸 Выберите действие:\n"
+        "• Каталог - просмотр всех букетов\n"
+        "• AI-рекомендация - умный подбор\n"
+        "• Собрать букет - конструктор\n"
+        "• Быстрые AI-варианты - готовые решения"
+    )
+    
+    # Create inline keyboard
+    keyboard = [
+        [
+            InlineKeyboardButton("🌸 Каталог", callback_data="catalog"),
+            InlineKeyboardButton("🤖 AI-рекомендация", callback_data="ai_menu")
+        ],
+        [
+            InlineKeyboardButton("🎨 Собрать букет", callback_data="build_start"),
+            InlineKeyboardButton("🧺 Корзина", callback_data="cart")
+        ],
+        [
+            InlineKeyboardButton("🎉 ДР 2000₽", callback_data="ai:occasion:birthday:budget:2000"),
+            InlineKeyboardButton("💕 Романтика 2500₽", callback_data="ai:occasion:love:budget:2500")
+        ],
+        [
+            InlineKeyboardButton("🕒 Последний заказ", callback_data="history"),
+            InlineKeyboardButton("💍 Свадьба", callback_data="ai:occasion:wedding")
+        ],
+        [
+            InlineKeyboardButton("😔 Извинения", callback_data="ai:occasion:apology")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(greeting, reply_markup=reply_markup)
+
+
+# FSM Handlers
 async def start_build(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder FSM."""
     logger.info(f"FSM build started for user {update.effective_user.id}")
@@ -238,8 +556,19 @@ def main_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("recommend", recommend))
     
-    # Callback handler for recommendation presets
+    # Callback handler for recommendation presets (old format)
     application.add_handler(CallbackQueryHandler(handle_preset_callback, pattern="^rec_preset:"))
+    
+    # New AI callback handlers
+    application.add_handler(CallbackQueryHandler(handle_ai_callback, pattern="^ai:occasion:"))
+    application.add_handler(CallbackQueryHandler(handle_ai_menu_callback, pattern="^ai_menu$"))
+    
+    # Menu callback handlers
+    application.add_handler(CallbackQueryHandler(handle_catalog_callback, pattern="^catalog$"))
+    application.add_handler(CallbackQueryHandler(handle_cart_callback, pattern="^cart$"))
+    application.add_handler(CallbackQueryHandler(handle_history_callback, pattern="^history$"))
+    application.add_handler(CallbackQueryHandler(handle_build_start_callback, pattern="^build_start$"))
+    application.add_handler(CallbackQueryHandler(handle_back_to_start_callback, pattern="^back_to_start$"))
     
     # FSM - reuse the exported conversation handler
     application.add_handler(build_conversation)
