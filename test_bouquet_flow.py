@@ -3,8 +3,8 @@
 import asyncio
 import os
 
-# Set test token
-os.environ["TELEGRAM_BOT_TOKEN"] = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+# Set a clearly dummy test token (not a real Telegram bot token)
+os.environ["TELEGRAM_BOT_TOKEN"] = "TEST_TELEGRAM_BOT_TOKEN"
 
 async def test_bouquet_flow():
     """Test the bouquet builder conversation flow."""
