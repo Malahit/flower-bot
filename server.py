@@ -97,8 +97,9 @@ async def start_combined_server():
     
     # Message handlers
     from telegram.ext import MessageHandler, filters
-    # TODO: Implement location handling - currently handled in orders.py via CallbackQueryHandler
-    # This is a placeholder to log location messages that arrive outside the order flow
+    # NOTE: Location handling is implemented in orders.py via CallbackQueryHandler
+    # This handler logs location messages that arrive outside the expected order flow
+    # as a safety net for debugging. This is intentional placeholder behavior.
     application.add_handler(MessageHandler(
         filters.LOCATION, 
         lambda u, c: logger.info(f"Location received from user {u.effective_user.id} outside order flow")

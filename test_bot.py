@@ -7,8 +7,8 @@ import secrets
 
 # Set test token with randomly generated value
 # Format: bot{random_id}:AA{random_hex_32chars}
-test_token = f"bot{secrets.randbelow(1000000)}:AA{secrets.token_hex(16)}"
-os.environ["TELEGRAM_BOT_TOKEN"] = test_token
+random_test_bot_token = f"bot{secrets.randbelow(1000000)}:AA{secrets.token_hex(16)}"
+os.environ["TELEGRAM_BOT_TOKEN"] = random_test_bot_token
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_flower_bot.db"
 
 async def test_database():
