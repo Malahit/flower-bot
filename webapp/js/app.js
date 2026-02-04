@@ -103,15 +103,48 @@ function loadCatalog(category = 'all') {
 function createFlowerCard(flower) {
     const card = document.createElement('div');
     card.className = 'flower-card';
-    card.innerHTML = `
-        <img src="${flower.photo}" alt="${flower.name}" onerror="this.src='${PLACEHOLDER_IMAGE}'">
-        <div class="flower-info">
-            <div class="flower-name">${flower.name}</div>
-            ${flower.description ? `<div class="flower-description">${flower.description}</div>` : ''}
-            <div class="flower-price">${flower.price}₽</div>
-            <button class="btn-add" onclick="addToCart(${flower.id})">Добавить</button>
-        </div>
-    `;
+    
+    // Create image element
+    const img = document.createElement('img');
+    img.src = flower.photo;
+    img.alt = flower.name;
+    img.onerror = function() { this.src = PLACEHOLDER_IMAGE; };
+    
+    // Create info container
+    const info = document.createElement('div');
+    info.className = 'flower-info';
+    
+    // Create name element
+    const name = document.createElement('div');
+    name.className = 'flower-name';
+    name.textContent = flower.name;
+    info.appendChild(name);
+    
+    // Create description element if exists
+    if (flower.description) {
+        const desc = document.createElement('div');
+        desc.className = 'flower-description';
+        desc.textContent = flower.description;  // Safe text content
+        info.appendChild(desc);
+    }
+    
+    // Create price element
+    const price = document.createElement('div');
+    price.className = 'flower-price';
+    price.textContent = `${flower.price}₽`;
+    info.appendChild(price);
+    
+    // Create add button
+    const button = document.createElement('button');
+    button.className = 'btn-add';
+    button.textContent = 'Добавить';
+    button.onclick = () => addToCart(flower.id);
+    info.appendChild(button);
+    
+    // Assemble card
+    card.appendChild(img);
+    card.appendChild(info);
+    
     return card;
 }
 

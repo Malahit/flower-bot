@@ -1,5 +1,6 @@
 """FastAPI backend for Telegram Mini App."""
 import logging
+import os
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -14,9 +15,15 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Flower Bot API", version="1.0.0")
 
 # CORS configuration for Telegram Mini App
+# Get allowed origins from environment, default to Telegram domains
+allowed_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://web.telegram.org,https://telegram.org"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to Telegram domains
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

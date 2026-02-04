@@ -3,9 +3,12 @@
 import asyncio
 import os
 import sys
+import secrets
 
-# Set test environment
-os.environ["TELEGRAM_BOT_TOKEN"] = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+# Set test environment with randomly generated test token
+# Format: bot{random_id}:AA{random_hex_32chars}
+test_token = f"bot{secrets.randbelow(1000000)}:AA{secrets.token_hex(16)}"
+os.environ["TELEGRAM_BOT_TOKEN"] = test_token
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_api_flower_bot.db"
 
 async def test_api_endpoints():
