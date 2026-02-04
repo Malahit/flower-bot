@@ -3,70 +3,95 @@ let tg = window.Telegram.WebApp;
 tg.expand();
 tg.enableClosingConfirmation();
 
-// Sample flowers data (in production, this would come from the bot)
-const flowers = [
-    {
-        id: 1,
-        name: "Розы классические",
-        description: "Букет из 15 красных роз",
-        price: 2500,
-        category: "roses",
-        photo: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=300&h=300&fit=crop"
-    },
-    {
-        id: 2,
-        name: "Тюльпаны микс",
-        description: "Букет из 25 разноцветных тюльпанов",
-        price: 1800,
-        category: "tulips",
-        photo: "https://images.unsplash.com/photo-1520763185298-1b434c919102?w=300&h=300&fit=crop"
-    },
-    {
-        id: 3,
-        name: "Пионы нежные",
-        description: "Букет из 7 розовых пионов",
-        price: 3200,
-        category: "peonies",
-        photo: "https://images.unsplash.com/photo-1588699111448-4e6c7a155a47?w=300&h=300&fit=crop"
-    },
-    {
-        id: 4,
-        name: "Букет 'День рождения'",
-        description: "Яркий микс из роз, хризантем",
-        price: 2000,
-        category: "mixed",
-        photo: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300&h=300&fit=crop"
-    },
-    {
-        id: 5,
-        name: "Монобукет хризантем",
-        description: "Букет из белых хризантем",
-        price: 1500,
-        category: "mixed",
-        photo: "https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=300&h=300&fit=crop"
-    }
-];
+// API configuration
+const API_BASE_URL = window.location.origin;
+
+// Flowers data (loaded from API)
+let flowers = [];
 
 // Cart management
 let cart = [];
 
+// Loading state
+let isLoading = false;
+
 // Load catalog on page load
-window.addEventListener('DOMContentLoaded', () => {
-    loadCatalog();
+window.addEventListener('DOMContentLoaded', async () => {
+    // Apply Telegram theme
+    applyTelegramTheme();
+    
+    // Setup event listeners
     setupFilters();
     
-    // Apply Telegram theme
+    // Load flowers from API
+    await loadFlowersFromAPI();
+});
+
+function applyTelegramTheme() {
     document.body.style.backgroundColor = tg.themeParams.bg_color || '#ffffff';
     document.body.style.color = tg.themeParams.text_color || '#222222';
-});
+}
+
+async function loadFlowersFromAPI() {
+    try {
+        showLoading(true);
+        const response = await fetch(`${API_BASE_URL}/api/flowers`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch flowers');
+        }
+        
+        flowers = await response.json();
+        
+        // Update flowers to use photo_url as photo for compatibility
+        flowers = flowers.map(flower => ({
+            ...flower,
+            photo: flower.photo_url || 'https://via.placeholder.com/300x300.png?text=Flower'
+        }));
+        
+        loadCatalog('all');
+        showLoading(false);
+    } catch (error) {
+        console.error('Error loading flowers:', error);
+        showError('Не удалось загрузить каталог. Попробуйте позже.');
+        showLoading(false);
+    }
+}
+
+function showLoading(show) {
+    isLoading = show;
+    const catalog = document.getElementById('catalog');
+    
+    if (show) {
+        catalog.innerHTML = '<div class="loading-spinner">🌸 Загрузка...</div>';
+    }
+}
+
+function showError(message) {
+    const catalog = document.getElementById('catalog');
+    catalog.innerHTML = `<div class="error-message">⚠️ ${message}</div>`;
+}
 
 function loadCatalog(category = 'all') {
     const catalog = document.getElementById('catalog');
+    
+    if (isLoading) return;
+    
+    if (!flowers || flowers.length === 0) {
+        catalog.innerHTML = '<div class="empty-message">📦 Каталог пуст</div>';
+        return;
+    }
+    
     catalog.innerHTML = '';
     
     const filteredFlowers = category === 'all' 
         ? flowers 
         : flowers.filter(f => f.category === category);
+    
+    if (filteredFlowers.length === 0) {
+        catalog.innerHTML = '<div class="empty-message">🔍 Цветы в этой категории не найдены</div>';
+        return;
+    }
     
     filteredFlowers.forEach(flower => {
         const card = createFlowerCard(flower);
@@ -81,6 +106,7 @@ function createFlowerCard(flower) {
         <img src="${flower.photo}" alt="${flower.name}" onerror="this.src='https://via.placeholder.com/300x300.png?text=Flower'">
         <div class="flower-info">
             <div class="flower-name">${flower.name}</div>
+            ${flower.description ? `<div class="flower-description">${flower.description}</div>` : ''}
             <div class="flower-price">${flower.price}₽</div>
             <button class="btn-add" onclick="addToCart(${flower.id})">Добавить</button>
         </div>
