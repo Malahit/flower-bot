@@ -112,6 +112,43 @@ def main() -> None:
     except ImportError:
         logger.warning("⚠️ FSM handlers not found")
     
+    # Register orders callbacks
+    try:
+        from handlers.orders import request_location, clear_cart, pay_ton, confirm_order
+        application.add_handler(CallbackQueryHandler(request_location, pattern="^request_location$"))
+        application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
+        application.add_handler(CallbackQueryHandler(pay_ton, pattern="^pay_ton$"))
+        application.add_handler(CallbackQueryHandler(confirm_order, pattern="^confirm_order_"))
+        logger.info("✅ Orders callbacks registered")
+    except ImportError as e:
+        logger.warning(f"⚠️ Orders callbacks not registered: {e}")
+    
+    # Register admin callbacks
+    try:
+        from handlers.admin import (
+            admin_list_flowers, admin_orders, admin_users, admin_back,
+            add_flower_conversation, register_admin_screens
+        )
+        # Register admin screens first
+        register_admin_screens()
+        
+        application.add_handler(CallbackQueryHandler(admin_list_flowers, pattern="^admin_list_flowers$"))
+        application.add_handler(CallbackQueryHandler(admin_orders, pattern="^admin_orders$"))
+        application.add_handler(CallbackQueryHandler(admin_users, pattern="^admin_users$"))
+        application.add_handler(CallbackQueryHandler(admin_back, pattern="^admin_back$"))
+        application.add_handler(add_flower_conversation)
+        logger.info("✅ Admin callbacks registered")
+    except ImportError as e:
+        logger.warning(f"⚠️ Admin callbacks not registered: {e}")
+    
+    # Register navigation back handler
+    try:
+        from handlers.navigation import handle_nav_back
+        application.add_handler(CallbackQueryHandler(handle_nav_back, pattern="^nav_back$"))
+        logger.info("✅ Navigation back handler registered")
+    except ImportError as e:
+        logger.warning(f"⚠️ Navigation handler not registered: {e}")
+    
     # Message handlers (safe)
     application.add_handler(MessageHandler(filters.LOCATION, lambda u, c: logger.info("Location received")))
     application.add_handler(MessageHandler(
