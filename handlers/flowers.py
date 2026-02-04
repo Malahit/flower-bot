@@ -23,8 +23,11 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
-# FSM States
+# Old FSM States (kept for backward compatibility if needed)
 CHOOSE_COLOR, CHOOSE_QUANTITY, CHOOSE_ADDONS = range(3)
+
+# New 4-step AI bouquet constructor states
+BUILD_OCCASION, BUILD_BUDGET, BUILD_FLOWER, BUILD_ADDONS, BUILD_PREVIEW = range(5, 10)
 
 # Valid options
 VALID_COLORS = {
@@ -534,7 +537,406 @@ async def handle_back_to_start_callback(update: Update, context: ContextTypes.DE
     await query.edit_message_text(greeting, reply_markup=reply_markup)
 
 
-# FSM Handlers
+# ==================== Helper Functions for 4-step AI Bouquet Constructor ====================
+
+def _init_bouquet(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Initialize bouquet data in context."""
+    context.user_data["ai_bouquet"] = {
+        "occasion": None,
+        "budget": None,
+        "flower": None,
+        "quantity": None,
+        "price": None,
+        "addons": []
+    }
+
+def _update_total(context: ContextTypes.DEFAULT_TYPE) -> float:
+    """Calculate and update total price for bouquet."""
+    bouquet = context.user_data.get("ai_bouquet", {})
+    base_price = bouquet.get("price", 0)
+    
+    # Addon prices
+    addon_prices = {
+        "ribbon": 200,
+        "chocolate": 500,
+        "teddy": 800,
+        "lux": 300
+    }
+    
+    addon_total = sum(addon_prices.get(addon, 0) for addon in bouquet.get("addons", []))
+    total = base_price + addon_total
+    
+    bouquet["total"] = total
+    context.user_data["ai_bouquet"] = bouquet
+    return total
+
+async def _fetch_flowers_by_budget(budget: int) -> list:
+    """Fetch available flowers within budget from database."""
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(Flower)
+                .where(Flower.available)
+                .where(Flower.price <= budget)
+                .order_by(Flower.price.desc())
+            )
+            return result.scalars().all()
+    except Exception as e:
+        logger.error(f"Error fetching flowers by budget: {e}")
+        return []
+
+def _addon_def(addon_key: str) -> dict:
+    """Get addon definition with name and price."""
+    addons = {
+        "ribbon": {"name": "🎀 Лента", "price": 200},
+        "chocolate": {"name": "🍫 Шоколад", "price": 500},
+        "teddy": {"name": "🧸 Мишка", "price": 800},
+        "lux": {"name": "✨ Люкс упаковка", "price": 300}
+    }
+    return addons.get(addon_key, {"name": "Неизвестно", "price": 0})
+
+def _bouquet_summary(context: ContextTypes.DEFAULT_TYPE) -> str:
+    """Generate bouquet summary text."""
+    bouquet = context.user_data.get("ai_bouquet", {})
+    
+    summary = "🌸 Ваш букет:\n\n"
+    summary += f"📋 Повод: {bouquet.get('occasion', 'Не указан')}\n"
+    summary += f"💰 Бюджет: {bouquet.get('budget', 0)}₽\n"
+    
+    if bouquet.get("flower"):
+        summary += f"🌺 Букет: {bouquet.get('flower')} x{bouquet.get('quantity', 0)}\n"
+        summary += f"   Цена букета: {bouquet.get('price', 0)}₽\n"
+    
+    if bouquet.get("addons"):
+        summary += "\n🎁 Дополнения:\n"
+        for addon in bouquet.get("addons", []):
+            addon_info = _addon_def(addon)
+            summary += f"   • {addon_info['name']} - {addon_info['price']}₽\n"
+    
+    total = _update_total(context)
+    summary += f"\n💵 Итого: {total}₽"
+    
+    return summary
+
+
+# ==================== 4-Step AI Bouquet Constructor Handlers ====================
+
+async def build_occasion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 1: Show occasion selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Initialize bouquet
+    _init_bouquet(context)
+    
+    # Create occasion keyboard
+    keyboard = [
+        [
+            InlineKeyboardButton("🎉 День рождения", callback_data="occasion:birthday"),
+            InlineKeyboardButton("💕 Любовь", callback_data="occasion:love")
+        ],
+        [
+            InlineKeyboardButton("💍 Свадьба", callback_data="occasion:wedding"),
+            InlineKeyboardButton("😔 Извинение", callback_data="occasion:sorry")
+        ],
+        [
+            InlineKeyboardButton("💼 Деловое", callback_data="occasion:business"),
+            InlineKeyboardButton("✏️ Свой вариант", callback_data="occasion:custom")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🌸 AI Конструктор букетов\n\n"
+        "Шаг 1/4: Выберите повод:",
+        reply_markup=reply_markup
+    )
+    
+    logger.info(f"Build occasion started for user {update.effective_user.id}")
+    return BUILD_BUDGET
+
+async def handle_occasion_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle occasion selection and move to budget."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse occasion from callback data
+    occasion_key = query.data.split(":")[1]
+    
+    occasion_map = {
+        "birthday": "🎉 День рождения",
+        "love": "💕 Любовь",
+        "wedding": "💍 Свадьба",
+        "sorry": "😔 Извинение",
+        "business": "💼 Деловое",
+        "custom": "✏️ Свой вариант"
+    }
+    
+    occasion = occasion_map.get(occasion_key, occasion_key)
+    context.user_data["ai_bouquet"]["occasion"] = occasion
+    
+    # Call build_budget
+    return await build_budget(update, context)
+
+async def build_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 2: Show budget selection with AI tip."""
+    query = update.callback_query
+    
+    # Create budget keyboard
+    keyboard = [
+        [
+            InlineKeyboardButton("1500₽", callback_data="budget:1500"),
+            InlineKeyboardButton("2500₽", callback_data="budget:2500")
+        ],
+        [
+            InlineKeyboardButton("3500₽", callback_data="budget:3500"),
+            InlineKeyboardButton("5000+₽", callback_data="budget:5000")
+        ],
+        [
+            InlineKeyboardButton("✏️ Свой бюджет", callback_data="budget:custom")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    occasion = context.user_data["ai_bouquet"].get("occasion", "")
+    
+    await query.edit_message_text(
+        f"✅ Повод: {occasion}\n\n"
+        f"Шаг 2/4: Выберите бюджет:\n"
+        f"💡 AI подсказка: для повода '{occasion}' рекомендуем от 2500₽",
+        reply_markup=reply_markup
+    )
+    
+    return BUILD_FLOWER
+
+async def handle_budget_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle budget selection and move to flower selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse budget from callback data
+    budget_str = query.data.split(":")[1]
+    
+    # Handle custom budget or use preset
+    if budget_str == "custom":
+        budget = 3000  # Default for custom
+    else:
+        budget = int(budget_str)
+    
+    context.user_data["ai_bouquet"]["budget"] = budget
+    
+    # Call build_flower
+    return await build_flower(update, context)
+
+async def build_flower(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 3: Show flower options based on budget."""
+    query = update.callback_query
+    
+    budget = context.user_data["ai_bouquet"].get("budget", 3000)
+    
+    # Create flower keyboard with preset options
+    keyboard = [
+        [InlineKeyboardButton("🌹 Красные розы (11 шт, 2500₽)", callback_data="flower:red_roses:11:2500")],
+        [InlineKeyboardButton("🤍 Белые пионы (15 шт, 3200₽)", callback_data="flower:white_peony:15:3200")],
+        [InlineKeyboardButton("🌈 Микс (21 шт, 2800₽)", callback_data="flower:mixed:21:2800")],
+        [InlineKeyboardButton("💙 Синие ирисы (7 шт, 1700₽)", callback_data="flower:blue_iris:7:1700")],
+        [InlineKeyboardButton("🤖 AI подбор", callback_data="flower:ai:0:0")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    occasion = context.user_data["ai_bouquet"].get("occasion", "")
+    
+    await query.edit_message_text(
+        f"✅ Повод: {occasion}\n"
+        f"✅ Бюджет: {budget}₽\n\n"
+        f"Шаг 3/4: Выберите цветы:",
+        reply_markup=reply_markup
+    )
+    
+    return BUILD_ADDONS
+
+async def handle_flower_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle flower selection and move to addons."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse flower from callback data: flower:name:quantity:price
+    parts = query.data.split(":")
+    flower_key = parts[1]
+    
+    if flower_key == "ai":
+        # AI selection uses budget
+        budget = context.user_data["ai_bouquet"].get("budget", 3000)
+        flower_name = "🤖 AI подбор букета"
+        quantity = 15
+        price = budget
+    else:
+        quantity = int(parts[2])
+        price = int(parts[3])
+        
+        flower_map = {
+            "red_roses": "🌹 Красные розы",
+            "white_peony": "🤍 Белые пионы",
+            "mixed": "🌈 Микс",
+            "blue_iris": "💙 Синие ирисы"
+        }
+        flower_name = flower_map.get(flower_key, flower_key)
+    
+    context.user_data["ai_bouquet"]["flower"] = flower_name
+    context.user_data["ai_bouquet"]["quantity"] = quantity
+    context.user_data["ai_bouquet"]["price"] = price
+    
+    # Call build_addons
+    return await build_addons(update, context)
+
+async def build_addons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 4: Show addon options."""
+    query = update.callback_query
+    
+    # Get current addons
+    selected_addons = context.user_data["ai_bouquet"].get("addons", [])
+    
+    # Create addons keyboard
+    keyboard = []
+    for addon_key in ["ribbon", "chocolate", "teddy", "lux"]:
+        addon_info = _addon_def(addon_key)
+        if addon_key in selected_addons:
+            button_text = f"✅ {addon_info['name']} - {addon_info['price']}₽"
+        else:
+            button_text = f"{addon_info['name']} - {addon_info['price']}₽"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"addon:{addon_key}")])
+    
+    # Add done button
+    keyboard.append([InlineKeyboardButton("✅ Готово!", callback_data="preview")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    occasion = context.user_data["ai_bouquet"].get("occasion", "")
+    budget = context.user_data["ai_bouquet"].get("budget", 0)
+    flower = context.user_data["ai_bouquet"].get("flower", "")
+    quantity = context.user_data["ai_bouquet"].get("quantity", 0)
+    
+    await query.edit_message_text(
+        f"✅ Повод: {occasion}\n"
+        f"✅ Бюджет: {budget}₽\n"
+        f"✅ Букет: {flower} x{quantity}\n\n"
+        f"Шаг 4/4: Выберите дополнения (опционально):",
+        reply_markup=reply_markup
+    )
+    
+    return BUILD_PREVIEW
+
+async def handle_addon_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle addon toggle or preview."""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "preview":
+        # Move to preview
+        return await build_preview(update, context)
+    
+    # Toggle addon
+    addon_key = query.data.split(":")[1]
+    selected_addons = context.user_data["ai_bouquet"].get("addons", [])
+    
+    if addon_key in selected_addons:
+        selected_addons.remove(addon_key)
+    else:
+        selected_addons.append(addon_key)
+    
+    context.user_data["ai_bouquet"]["addons"] = selected_addons
+    
+    # Refresh the addons view
+    return await build_addons(update, context)
+
+async def build_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show final preview with summary and action buttons."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Generate summary
+    summary = _bouquet_summary(context)
+    
+    # Create action keyboard
+    keyboard = [
+        [InlineKeyboardButton("🛒 В корзину!", callback_data="add_cart")],
+        [InlineKeyboardButton("🔄 Изменить цветы", callback_data="edit:flower")],
+        [InlineKeyboardButton("❌ Новый букет", callback_data="restart")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        summary,
+        reply_markup=reply_markup
+    )
+    
+    logger.info(f"Build preview shown for user {update.effective_user.id}")
+    return ConversationHandler.END
+
+
+async def handle_add_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle adding AI bouquet to cart."""
+    query = update.callback_query
+    await query.answer("✅ Добавлено в корзину!")
+    
+    # Get bouquet from context
+    bouquet = context.user_data.get("ai_bouquet", {})
+    
+    # Initialize cart if not exists
+    if 'cart' not in context.user_data:
+        context.user_data['cart'] = []
+    
+    # Add AI bouquet to cart
+    cart_item = {
+        'type': 'ai_bouquet',
+        'occasion': bouquet.get('occasion', ''),
+        'flower': bouquet.get('flower', ''),
+        'quantity': bouquet.get('quantity', 0),
+        'addons': [_addon_def(addon)['name'] for addon in bouquet.get('addons', [])],
+        'price': bouquet.get('total', 0)
+    }
+    
+    context.user_data['cart'].append(cart_item)
+    
+    await query.edit_message_text(
+        f"✅ Букет добавлен в корзину!\n\n"
+        f"Букет: {bouquet.get('flower', '')} x{bouquet.get('quantity', 0)}\n"
+        f"Цена: {bouquet.get('total', 0)}₽\n\n"
+        f"Используйте /cart для просмотра корзины или /start для главного меню"
+    )
+    
+    logger.info(f"AI bouquet added to cart for user {update.effective_user.id}")
+    return ConversationHandler.END
+
+
+async def handle_edit_flower(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle edit flower request - placeholder for future implementation."""
+    query = update.callback_query
+    await query.answer("Функция в разработке")
+    
+    await query.edit_message_text(
+        "🔄 Изменение цветов в разработке\n\n"
+        "Используйте /start чтобы создать новый букет"
+    )
+    
+    logger.info(f"Edit flower clicked (not implemented yet) for user {update.effective_user.id}")
+    return ConversationHandler.END
+
+
+async def handle_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle restart - placeholder for future implementation."""
+    query = update.callback_query
+    await query.answer("Создайте новый букет через /start")
+    
+    await query.edit_message_text(
+        "❌ Для создания нового букета используйте:\n"
+        "/start → 🎨 Собрать букет"
+    )
+    
+    logger.info(f"Restart clicked for user {update.effective_user.id}")
+    return ConversationHandler.END
+
+
+# ==================== Old FSM Handlers (kept for backward compatibility) ====================
 async def start_build(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start bouquet builder FSM."""
     logger.info(f"FSM build started for user {update.effective_user.id}")
@@ -769,8 +1171,31 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("❌ Отменено. /build для нового букета.")
     return ConversationHandler.END
 
-# Export the conversation handler for testing
+# Export the NEW conversation handler for 4-step AI bouquet constructor
 build_conversation = ConversationHandler(
+    entry_points=[CallbackQueryHandler(build_occasion, pattern="^build_start$")],
+    states={
+        BUILD_BUDGET: [
+            CallbackQueryHandler(handle_occasion_choice, pattern="^occasion:"),
+        ],
+        BUILD_FLOWER: [
+            CallbackQueryHandler(handle_budget_choice, pattern="^budget:"),
+        ],
+        BUILD_ADDONS: [
+            CallbackQueryHandler(handle_flower_choice, pattern="^flower:"),
+        ],
+        BUILD_PREVIEW: [
+            CallbackQueryHandler(handle_addon_choice, pattern="^addon:"),
+            CallbackQueryHandler(handle_addon_choice, pattern="^preview$"),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel),
+    ],
+)
+
+# Old conversation handler (kept for /build command backward compatibility)
+old_build_conversation = ConversationHandler(
     entry_points=[CommandHandler("build", start_build)],
     states={
         CHOOSE_COLOR: [
@@ -811,10 +1236,18 @@ def main_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(handle_catalog_callback, pattern="^catalog$"))
     application.add_handler(CallbackQueryHandler(handle_cart_callback, pattern="^cart$"))
     application.add_handler(CallbackQueryHandler(handle_history_callback, pattern="^history$"))
-    application.add_handler(CallbackQueryHandler(handle_build_start_callback, pattern="^build_start$"))
+    # Note: build_start callback is now handled by the new ConversationHandler
     application.add_handler(CallbackQueryHandler(handle_back_to_start_callback, pattern="^back_to_start$"))
     
-    # FSM - reuse the exported conversation handler
+    # NEW 4-step AI bouquet constructor (handles build_start callback)
     application.add_handler(build_conversation)
+    
+    # Handlers for post-preview actions (after conversation ends)
+    application.add_handler(CallbackQueryHandler(handle_add_cart, pattern="^add_cart$"))
+    application.add_handler(CallbackQueryHandler(handle_edit_flower, pattern="^edit:flower$"))
+    application.add_handler(CallbackQueryHandler(handle_restart, pattern="^restart$"))
+    
+    # Old /build command handler (for backward compatibility)
+    application.add_handler(old_build_conversation)
     
     logger.info("Flower handlers registered")
