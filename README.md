@@ -60,8 +60,24 @@ Advanced Telegram bot for flower delivery with AI-powered recommendations, custo
    ```
 
 4. **Run the bot**
+   
+   **Option A: Bot with Polling (Development)**
    ```bash
    python bot.py
+   ```
+   
+   **Option B: Combined Server (Production - Bot + Mini App API)**
+   ```bash
+   python server.py
+   # Or using environment variables:
+   # WEBHOOK_URL=https://your-domain.com PORT=8080 python server.py
+   ```
+   
+   **Option C: Standalone API Server (for testing Mini App)**
+   ```bash
+   python api.py
+   # API will be available at http://localhost:8000
+   # Mini App at http://localhost:8000/webapp/index.html
    ```
 
 5. **Test in Telegram**
@@ -96,21 +112,54 @@ Advanced Telegram bot for flower delivery with AI-powered recommendations, custo
 
 ```
 flower-bot/
-├── bot.py                 # Main bot application
+├── bot.py                 # Main bot application (polling mode)
+├── server.py              # Combined server (webhook + API)
+├── api.py                 # FastAPI backend for Mini App
 ├── database.py            # SQLAlchemy models (User, Flower, Order)
 ├── requirements.txt       # Python dependencies
 ├── handlers/
 │   ├── flowers.py        # /start, /recommend, /build handlers
 │   ├── orders.py         # Cart and payment handlers
+│   ├── navigation.py     # Navigation stack system
 │   └── admin.py          # Admin CRUD operations
 ├── webapp/               # Telegram Mini App
 │   ├── index.html       # Main app page
-│   ├── css/style.css    # Styling
-│   └── js/app.js        # TWA SDK integration
+│   ├── css/style.css    # Responsive mobile-first styling
+│   └── js/app.js        # TWA SDK integration + API client
+├── test_bot.py          # Bot handler tests
+├── test_api.py          # API endpoint tests
 ├── Dockerfile           # Multi-stage Docker build
 ├── docker-compose.yml   # Local development setup
 └── railway.yaml         # Railway deployment config
 ```
+
+## 🌐 Telegram Mini App API
+
+The bot includes a FastAPI backend that serves the Telegram Mini App and provides RESTful endpoints for the catalog.
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /` | Root | API info |
+| `GET /health` | Health check | Server status |
+| `GET /api/flowers` | List flowers | Get all available flowers |
+| `GET /api/flowers?category={cat}` | Filter by category | Get flowers by category (roses, tulips, peonies, mixed, chrysanthemums) |
+| `GET /api/flowers/{id}` | Get flower | Get specific flower by ID |
+| `GET /api/categories` | List categories | Get all categories with counts |
+| `GET /webapp/` | Static files | Serve Mini App files |
+
+### Mini App Features
+
+- **Responsive Design**: Mobile-first, optimized for Telegram WebView
+- **Category Filtering**: Filter flowers by type (roses, tulips, peonies, mixed, chrysanthemums)
+- **Loading States**: Smooth loading animations
+- **Error Handling**: User-friendly error messages
+- **Telegram Integration**: 
+  - Theme adaptation (uses Telegram's color scheme)
+  - Haptic feedback on interactions
+  - Cart synchronization with bot backend
+  - Native popup notifications
 
 ## 🗄️ Database Schema
 
