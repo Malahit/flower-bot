@@ -5,6 +5,7 @@ tg.enableClosingConfirmation();
 
 // API configuration
 const API_BASE_URL = window.location.origin;
+const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/300x300.png?text=Flower';
 
 // Flowers data (loaded from API)
 let flowers = [];
@@ -46,7 +47,7 @@ async function loadFlowersFromAPI() {
         // Update flowers to use photo_url as photo for compatibility
         flowers = flowers.map(flower => ({
             ...flower,
-            photo: flower.photo_url || 'https://via.placeholder.com/300x300.png?text=Flower'
+            photo: flower.photo_url || PLACEHOLDER_IMAGE
         }));
         
         loadCatalog('all');
@@ -103,7 +104,7 @@ function createFlowerCard(flower) {
     const card = document.createElement('div');
     card.className = 'flower-card';
     card.innerHTML = `
-        <img src="${flower.photo}" alt="${flower.name}" onerror="this.src='https://via.placeholder.com/300x300.png?text=Flower'">
+        <img src="${flower.photo}" alt="${flower.name}" onerror="this.src='${PLACEHOLDER_IMAGE}'">
         <div class="flower-info">
             <div class="flower-name">${flower.name}</div>
             ${flower.description ? `<div class="flower-description">${flower.description}</div>` : ''}

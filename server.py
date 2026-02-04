@@ -130,9 +130,6 @@ async def start_combined_server():
             logger.error(f"Error processing webhook: {e}")
             return Response(status_code=500)
     
-    # Start processing updates
-    asyncio.create_task(application.start())
-    
     # Run FastAPI server
     port = int(os.getenv("PORT", 8080))
     config = uvicorn.Config(api_app, host="0.0.0.0", port=port, log_level="info")
